@@ -12,34 +12,9 @@ const fmt = (n) =>
 // ts is stored as ISO when we write it; old entries used locale strings — fall back to created_at
 const entryDate = (e) => { const t = new Date(e.ts); return isNaN(t) ? new Date(e.created_at) : t; };
 
-function monotonicPath(pts) {
-  const n = pts.length;
-  if (n === 0) return "";
-  if (n === 1) return `M${pts[0].x},${pts[0].y}`;
-
-  const slopes = [];
-  for (let i = 0; i < n - 1; i++)
-    slopes.push((pts[i + 1].y - pts[i].y) / (pts[i + 1].x - pts[i].x));
-
-  const t = [slopes[0]];
-  for (let i = 1; i < n - 1; i++)
-    t.push(slopes[i - 1] * slopes[i] <= 0 ? 0 : (slopes[i - 1] + slopes[i]) / 2);
-  t.push(slopes[n - 2]);
-
-  for (let i = 0; i < n - 1; i++) {
-    if (Math.abs(slopes[i]) < 1e-9) { t[i] = t[i + 1] = 0; continue; }
-    const a = t[i] / slopes[i], b = t[i + 1] / slopes[i], sq = a * a + b * b;
-    if (sq > 9) { const s = 3 / Math.sqrt(sq); t[i] = s * a * slopes[i]; t[i + 1] = s * b * slopes[i]; }
-  }
-
-  let d = `M${pts[0].x},${pts[0].y}`;
-  for (let i = 0; i < n - 1; i++) {
-    const h = pts[i + 1].x - pts[i].x;
-    d += ` C${pts[i].x + h / 3},${pts[i].y + (t[i] * h) / 3}` +
-         ` ${pts[i + 1].x - h / 3},${pts[i + 1].y - (t[i + 1] * h) / 3}` +
-         ` ${pts[i + 1].x},${pts[i + 1].y}`;
-  }
-  return d;
+function linePath(pts) {
+  if (pts.length === 0) return "";
+  return pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
 }
 
 function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
@@ -87,9 +62,9 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
     .map((v, i) => (v !== null ? { x: toX(i), y: toY(v), v, i } : null))
     .filter(Boolean);
 
-  const linePath = monotonicPath(pts);
-  const areaPath = linePath
-    ? `${linePath} L${pts[pts.length - 1].x},${zeroY} L${pts[0].x},${zeroY} Z`
+  const lp = linePath(pts);
+  const areaPath = lp
+    ? `${lp} L${pts[pts.length - 1].x},${zeroY} L${pts[0].x},${zeroY} Z`
     : "";
 
   const zeroY = toY(0);
@@ -131,7 +106,7 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
 
         {/* Mountain area + line */}
         {areaPath && <path d={areaPath} fill="rgba(107,255,184,0.07)" />}
-        {linePath && <path d={linePath} fill="none" stroke="#6bffb8" strokeWidth={1.5} strokeLinecap="round" />}
+        {lp && <path d={lp} fill="none" stroke="#6bffb8" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />}
 
         {/* Tappable columns — one per day */}
         {days.map((label, i) => {
