@@ -394,15 +394,35 @@ export default function App() {
           </span>
         </div>
 
-        <div style={styles.balanceLabel}>Balance</div>
-
-        {loading ? (
-          <div style={styles.loadingBalance}>—</div>
-        ) : (
-          <div style={{ ...styles.balance, color: balance < 0 ? "#ff6b6b" : "#e2e2e2" }}>
-            {fmt(balance)}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+          <div>
+            <div style={styles.balanceLabel}>Balance</div>
+            {loading ? (
+              <div style={styles.loadingBalance}>—</div>
+            ) : (
+              <div style={{ ...styles.balance, color: balance < 0 ? "#ff6b6b" : "#e2e2e2" }}>
+                {fmt(balance)}
+              </div>
+            )}
           </div>
-        )}
+          {!loading && selectedDay && (() => {
+            const ds = new Date(selectedDay); ds.setHours(0, 0, 0, 0);
+            const de = new Date(selectedDay); de.setHours(23, 59, 59, 999);
+            const net = entries
+              .filter(e => { const t = entryDate(e); return t >= ds && t <= de; })
+              .reduce((s, e) => s + Number(e.change), 0);
+            return (
+              <div style={{ textAlign: "right", paddingBottom: 6 }}>
+                <div style={{ fontSize: 10, color: "#444", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 2 }}>
+                  {selectedDay.toLocaleDateString("en-US", { weekday: "long" })}
+                </div>
+                <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
+                  {net > 0 ? "+" : ""}{fmt(net)}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
 
         {!loading && (
           <WeeklyChart
