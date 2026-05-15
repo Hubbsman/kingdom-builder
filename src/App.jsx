@@ -9,6 +9,24 @@ const supabase = createClient(
 const fmt = (n) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 
+function catmullPath(pts, tension = 0.4) {
+  if (pts.length === 0) return "";
+  if (pts.length === 1) return `M${pts[0].x},${pts[0].y}`;
+  let d = `M${pts[0].x},${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(i - 1, 0)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(i + 2, pts.length - 1)];
+    const cp1x = p1.x + (p2.x - p0.x) * tension;
+    const cp1y = p1.y + (p2.y - p0.y) * tension;
+    const cp2x = p2.x - (p3.x - p1.x) * tension;
+    const cp2y = p2.y - (p3.y - p1.y) * tension;
+    d += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
+  }
+  return d;
+}
+
 function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
   const days = ["S", "M", "T", "W", "T", "F", "S"];
   const dow = now.getDay();
@@ -16,14 +34,21 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
   weekStart.setDate(now.getDate() - dow);
   weekStart.setHours(0, 0, 0, 0);
 
-  // Cumulative balance at end of each day — use Date comparison, not string
+  // Daily NET change per day (not cumulative) so Monday with no entries shows $0
   const balances = days.map((_, i) => {
     if (i > dow) return null;
+    const dayStart = new Date(weekStart);
+    dayStart.setDate(weekStart.getDate() + i);
+    dayStart.setHours(0, 0, 0, 0);
     const dayEnd = new Date(weekStart);
     dayEnd.setDate(weekStart.getDate() + i);
     dayEnd.setHours(23, 59, 59, 999);
     return entries
-      .filter((e) => e.created_at && new Date(e.created_at) <= dayEnd)
+      .filter((e) => {
+        if (!e.created_at) return false;
+        const t = new Date(e.created_at);
+        return t >= dayStart && t <= dayEnd;
+      })
       .reduce((sum, e) => sum + Number(e.change), 0);
   });
 
@@ -48,17 +73,10 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
     .map((v, i) => (v !== null ? { x: toX(i), y: toY(v), v, i } : null))
     .filter(Boolean);
 
-  let linePath = "";
-  let areaPath = "";
-  if (pts.length >= 1) {
-    linePath = `M${pts[0].x},${pts[0].y}`;
-    for (let k = 1; k < pts.length; k++) {
-      const cp = (pts[k - 1].x + pts[k].x) / 2;
-      linePath += ` C${cp},${pts[k - 1].y} ${cp},${pts[k].y} ${pts[k].x},${pts[k].y}`;
-    }
-    const bottomY = padTop + innerH;
-    areaPath = `${linePath} L${pts[pts.length - 1].x},${bottomY} L${pts[0].x},${bottomY} Z`;
-  }
+  const linePath = catmullPath(pts);
+  const areaPath = linePath
+    ? `${linePath} L${pts[pts.length - 1].x},${padTop + innerH} L${pts[0].x},${padTop + innerH} Z`
+    : "";
 
   const zeroY = toY(0);
   const selectedDow = selectedDay ? selectedDay.getDay() : null;
@@ -135,6 +153,71 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
           );
         })}
       </svg>
+    </div>
+  );
+}
+
+function DailyLog({ entries }) {
+  const [expanded, setExpanded] = useState(null);
+  if (!entries.length) return null;
+
+  const groups = {};
+  entries.forEach((e) => {
+    if (!e.created_at) return;
+    const d = new Date(e.created_at);
+    const key = d.toLocaleDateString("en-CA"); // YYYY-MM-DD
+    if (!groups[key]) groups[key] = { date: d, items: [], net: 0 };
+    groups[key].items.push(e);
+    groups[key].net += Number(e.change);
+  });
+
+  const dayList = Object.entries(groups).sort(([a], [b]) => b.localeCompare(a));
+
+  return (
+    <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 2 }}>
+      {dayList.map(([key, { date, items, net }]) => {
+        const isOpen = expanded === key;
+        const label = date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+        return (
+          <div key={key}>
+            <div
+              style={{
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                background: "#1a1a1a", padding: "10px 14px", cursor: "pointer",
+                borderRadius: isOpen ? "8px 8px 0 0" : 8,
+              }}
+              onPointerDown={() => setExpanded(isOpen ? null : key)}
+            >
+              <span style={{ fontSize: 13, color: "#666" }}>{label}</span>
+              <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
+                {net > 0 ? "+" : ""}{fmt(net)}
+              </span>
+            </div>
+            {isOpen && (
+              <div style={{ background: "#141414", borderRadius: "0 0 8px 8px" }}>
+                {[...items]
+                  .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+                  .map((e) => (
+                    <div key={e.id} style={{
+                      display: "flex", justifyContent: "space-between", alignItems: "center",
+                      padding: "8px 14px", borderTop: "1px solid #1e1e1e",
+                    }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: Number(e.change) < 0 ? "#ff6b6b" : "#6bffb8" }}>
+                          {Number(e.change) > 0 ? "+" : ""}{fmt(Number(e.change))}
+                        </span>
+                        {e.note && <span style={{ fontSize: 11, color: "#555" }}>{e.note}</span>}
+                      </div>
+                      <span style={{ fontSize: 11, color: "#333" }}>
+                        {new Date(e.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -326,22 +409,7 @@ export default function App() {
           </button>
         </div>
 
-        {!loading && entries.length > 0 && (
-          <div style={styles.log}>
-            {entries.map((e) => (
-              <div key={e.id} style={styles.entry}>
-                <div style={styles.entryLeft}>
-                  <span style={{ ...styles.entryAmount, color: e.change < 0 ? "#ff6b6b" : "#6bffb8" }}>
-                    {e.change > 0 ? "+" : ""}
-                    {fmt(e.change)}
-                  </span>
-                  {e.note && <span style={styles.entryNote}>{e.note}</span>}
-                </div>
-                <span style={styles.entryTs}>{e.ts}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        {!loading && <DailyLog entries={entries} />}
 
         {!loading && (
           <div style={styles.resetWrap}>
