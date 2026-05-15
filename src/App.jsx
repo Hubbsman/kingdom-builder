@@ -1,10 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  "https://kkmkfkcrpotenbjeluga.supabase.co",
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtrbWtma2NycG90ZW5iamVsdWdhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3ODQ3NDcsImV4cCI6MjA5NDM2MDc0N30._XIeH9pIGlsdL1j2D_wrQkJF-w01P7Mfq1ED4kOiN4M"
-);
+import { supabase } from "./supabase";
+import MentorChat from "./MentorChat";
 
 const fmt = (n) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
@@ -312,6 +308,7 @@ function WeeklyLog({ entries, now, onDelete }) {
 }
 
 export default function App() {
+  const [activeTab, setActiveTab] = useState("balance");
   const [entries, setEntries] = useState([]);
   const [balance, setBalance] = useState(0);
   const [amount, setAmount] = useState("");
@@ -426,7 +423,10 @@ export default function App() {
   const handleKey = (e) => { if (e.key === "Enter") apply(1); };
 
   return (
-    <div style={styles.root}>
+    <>
+    {activeTab === "mentor" && <MentorChat />}
+    <div style={{ display: activeTab === "balance" ? "block" : "none" }}>
+    <div style={{ ...styles.root, paddingBottom: 90 }}>
       <div style={styles.card}>
         {error && <div style={styles.errorBox}>{error}</div>}
         <div style={styles.dateHeader}>
@@ -551,6 +551,26 @@ export default function App() {
         )}
       </div>
     </div>
+    </div>
+
+    {/* Bottom tab bar */}
+    <div style={styles.tabBar}>
+      <button
+        style={{ ...styles.tabBtn, color: activeTab === "balance" ? "#6bffb8" : "#3a3a3a" }}
+        onClick={() => setActiveTab("balance")}
+      >
+        <span style={styles.tabIcon}>⚖</span>
+        <span style={styles.tabLabel}>Balance</span>
+      </button>
+      <button
+        style={{ ...styles.tabBtn, color: activeTab === "mentor" ? "#6bffb8" : "#3a3a3a" }}
+        onClick={() => setActiveTab("mentor")}
+      >
+        <span style={styles.tabIcon}>◈</span>
+        <span style={styles.tabLabel}>Mentor</span>
+      </button>
+    </div>
+    </>
   );
 }
 
@@ -729,5 +749,40 @@ const styles = {
   confirmText: {
     color: "#888",
     fontSize: 13,
+  },
+  tabBar: {
+    position: "fixed",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 56,
+    background: "#0a0a0a",
+    borderTop: "1px solid #1a1a1a",
+    display: "flex",
+    zIndex: 200,
+  },
+  tabBtn: {
+    flex: 1,
+    background: "none",
+    border: "none",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    cursor: "pointer",
+    padding: 0,
+    fontFamily: "'Inter', 'Segoe UI', sans-serif",
+    transition: "color 0.15s",
+  },
+  tabIcon: {
+    fontSize: 18,
+    lineHeight: 1,
+  },
+  tabLabel: {
+    fontSize: 9,
+    fontWeight: 600,
+    letterSpacing: "0.1em",
+    textTransform: "uppercase",
   },
 };
