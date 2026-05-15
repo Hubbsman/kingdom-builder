@@ -9,6 +9,9 @@ const supabase = createClient(
 const fmt = (n) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 
+// ts is stored as ISO when we write it; old entries used locale strings — fall back to created_at
+const entryDate = (e) => { const t = new Date(e.ts); return isNaN(t) ? new Date(e.created_at) : t; };
+
 function catmullPath(pts, tension = 0.4) {
   if (pts.length === 0) return "";
   if (pts.length === 1) return `M${pts[0].x},${pts[0].y}`;
@@ -45,8 +48,7 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
     dayEnd.setHours(23, 59, 59, 999);
     return entries
       .filter((e) => {
-        if (!e.created_at) return false;
-        const t = new Date(e.created_at);
+        const t = entryDate(e);
         return t >= dayStart && t <= dayEnd;
       })
       .reduce((sum, e) => sum + Number(e.change), 0);
@@ -163,8 +165,7 @@ function DailyLog({ entries }) {
 
   const groups = {};
   entries.forEach((e) => {
-    if (!e.created_at) return;
-    const d = new Date(e.created_at);
+    const d = entryDate(e);
     const key = d.toLocaleDateString("en-CA"); // YYYY-MM-DD
     if (!groups[key]) groups[key] = { date: d, items: [], net: 0 };
     groups[key].items.push(e);
@@ -280,7 +281,7 @@ export default function App() {
       id: crypto.randomUUID(),
       change: sign * val,
       note: note.trim() || null,
-      ts: entryDate.toLocaleString(),
+      ts: entryDate.toISOString(),
       created_at: entryDate.toISOString(),
     };
 
