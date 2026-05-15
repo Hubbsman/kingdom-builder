@@ -434,13 +434,8 @@ export default function App() {
         )}
 
         {selectedDay && (
-          <div style={styles.dayTag}>
-            <span>
-              Adding to{" "}
-              <strong>{selectedDay.toLocaleDateString("en-US", { weekday: "long" })}</strong>
-              {" · "}{selectedDay.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-            </span>
-            <button style={styles.dayTagClose} onClick={() => setSelectedDay(null)}>✕</button>
+          <div style={{ fontSize: 13, color: "#e2e2e2", letterSpacing: "0.01em" }}>
+            {selectedDay.toLocaleDateString("en-US", { weekday: "long" })}
           </div>
         )}
 
