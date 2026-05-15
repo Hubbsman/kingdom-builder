@@ -143,47 +143,11 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
   );
 }
 
-function EntryRow({ entry, onDelete, onUpdate, showBorder }) {
-  const [editing, setEditing] = useState(false);
-  const [val, setVal] = useState(Math.abs(Number(entry.change)).toString());
-  const [editNote, setEditNote] = useState(entry.note || "");
+function EntryRow({ entry, onDelete, showBorder }) {
   const isNeg = Number(entry.change) < 0;
-
-  const save = () => {
-    const num = parseFloat(val);
-    if (!num || isNaN(num) || num <= 0) return;
-    onUpdate(entry.id, isNeg ? -num : num, editNote.trim() || null);
-    setEditing(false);
-  };
-
-  const cancel = () => {
-    setEditing(false);
-    setVal(Math.abs(Number(entry.change)).toString());
-    setEditNote(entry.note || "");
-  };
-
-  const base = { padding: "8px 14px", borderTop: showBorder ? "1px solid #1e1e1e" : "none" };
-  const inputStyle = { background: "#1f1f1f", border: "1px solid #2a2a2a", borderRadius: 6, color: "#e2e2e2", outline: "none", padding: "6px 10px" };
-
-  if (editing) {
-    return (
-      <div style={{ ...base, display: "flex", flexDirection: "column", gap: 6 }}>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input type="number" value={val} onChange={e => setVal(e.target.value)}
-            style={{ ...inputStyle, flex: 1, fontSize: 14 }} />
-          <input type="text" value={editNote} onChange={e => setEditNote(e.target.value)} placeholder="Note"
-            style={{ ...inputStyle, flex: 2, fontSize: 13, color: "#aaa" }} />
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button onPointerDown={save} style={{ flex: 1, background: "#1a3a2a", border: "none", borderRadius: 6, color: "#6bffb8", fontSize: 13, padding: "7px", cursor: "pointer" }}>Save</button>
-          <button onPointerDown={cancel} style={{ flex: 1, background: "#222", border: "none", borderRadius: 6, color: "#555", fontSize: 13, padding: "7px", cursor: "pointer" }}>Cancel</button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div style={{ ...base, display: "flex", alignItems: "center", gap: 8 }}>
+    <div style={{ padding: "8px 14px", borderTop: showBorder ? "1px solid #1e1e1e" : "none",
+      display: "flex", alignItems: "center", gap: 8 }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
         <span style={{ fontSize: 14, fontWeight: 600, color: isNeg ? "#ff6b6b" : "#6bffb8" }}>
           {isNeg ? "" : "+"}{fmt(Number(entry.change))}
@@ -193,40 +157,74 @@ function EntryRow({ entry, onDelete, onUpdate, showBorder }) {
       <span style={{ fontSize: 11, color: "#333" }}>
         {entryDate(entry).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
       </span>
-      <button onPointerDown={() => setEditing(true)}
-        style={{ background: "none", border: "none", color: "#3a3a3a", fontSize: 15, cursor: "pointer", padding: "4px 6px", lineHeight: 1 }}>✎</button>
       <button onPointerDown={() => onDelete(entry.id)}
         style={{ background: "none", border: "none", color: "#4a2020", fontSize: 18, cursor: "pointer", padding: "4px 6px", lineHeight: 1 }}>×</button>
     </div>
   );
 }
 
-function TodayLog({ entries, now, onDelete, onUpdate }) {
-  const todayKey = now.toLocaleDateString("en-CA");
-  const todayEntries = entries
-    .filter(e => entryDate(e).toLocaleDateString("en-CA") === todayKey)
-    .sort((a, b) => entryDate(b) - entryDate(a));
-  if (!todayEntries.length) return null;
+function ThisWeekLog({ entries, now, onDelete }) {
+  const [expanded, setExpanded] = useState(null);
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const dow = now.getDay();
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - dow);
+  weekStart.setHours(0, 0, 0, 0);
+
+  const days = [];
+  for (let i = 0; i <= dow; i++) {
+    const dayStart = new Date(weekStart);
+    dayStart.setDate(weekStart.getDate() + i);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(weekStart);
+    dayEnd.setDate(weekStart.getDate() + i);
+    dayEnd.setHours(23, 59, 59, 999);
+    const items = entries.filter(e => { const t = entryDate(e); return t >= dayStart && t <= dayEnd; });
+    if (!items.length) continue;
+    const net = items.reduce((s, e) => s + Number(e.change), 0);
+    days.push({ key: dayStart.toLocaleDateString("en-CA"), name: dayNames[i], items, net });
+  }
+
+  if (!days.length) return null;
+
   return (
-    <div style={{ marginTop: 16 }}>
-      <div style={{ fontSize: 10, color: "#3a3a3a", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>Today</div>
-      <div style={{ background: "#1a1a1a", borderRadius: 8 }}>
-        {todayEntries.map((e, i) => (
-          <EntryRow key={e.id} entry={e} onDelete={onDelete} onUpdate={onUpdate} showBorder={i > 0} />
-        ))}
-      </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {[...days].reverse().map(({ key, name, items, net }) => {
+        const isOpen = expanded === key;
+        return (
+          <div key={key}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+              background: "#1a1a1a", padding: "10px 14px", cursor: "pointer",
+              borderRadius: isOpen ? "8px 8px 0 0" : 8 }}
+              onPointerDown={() => setExpanded(isOpen ? null : key)}>
+              <span style={{ fontSize: 13, color: "#666" }}>{name}</span>
+              <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
+                {net > 0 ? "+" : ""}{fmt(net)}
+              </span>
+            </div>
+            {isOpen && (
+              <div style={{ background: "#141414", borderRadius: "0 0 8px 8px" }}>
+                {[...items].sort((a, b) => entryDate(b) - entryDate(a)).map((e, i) => (
+                  <EntryRow key={e.id} entry={e} onDelete={onDelete} showBorder={i > 0} />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-function WeeklyLog({ entries, now, onDelete, onUpdate }) {
+function WeeklyLog({ entries, now, onDelete }) {
   const [expanded, setExpanded] = useState(null);
-  const todayKey = now.toLocaleDateString("en-CA");
-  const past = entries.filter(e => entryDate(e).toLocaleDateString("en-CA") !== todayKey);
-  if (!past.length) return null;
 
   const weekKey = d => `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}-W${Math.ceil(d.getDate() / 7)}`;
   const weekLabel = d => `${d.toLocaleDateString("en-US", { month: "long" })} Week ${Math.ceil(d.getDate() / 7)}`;
+  const currentWK = weekKey(now);
+
+  const past = entries.filter(e => weekKey(entryDate(e)) !== currentWK);
+  if (!past.length) return null;
 
   const groups = {};
   past.forEach(e => {
@@ -247,12 +245,10 @@ function WeeklyLog({ entries, now, onDelete, onUpdate }) {
           const isOpen = expanded === k;
           return (
             <div key={k}>
-              <div
-                style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-                  background: "#1a1a1a", padding: "10px 14px", cursor: "pointer",
-                  borderRadius: isOpen ? "8px 8px 0 0" : 8 }}
-                onPointerDown={() => setExpanded(isOpen ? null : k)}
-              >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                background: "#1a1a1a", padding: "10px 14px", cursor: "pointer",
+                borderRadius: isOpen ? "8px 8px 0 0" : 8 }}
+                onPointerDown={() => setExpanded(isOpen ? null : k)}>
                 <span style={{ fontSize: 13, color: "#666" }}>{label}</span>
                 <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
                   {net > 0 ? "+" : ""}{fmt(net)}
@@ -261,7 +257,7 @@ function WeeklyLog({ entries, now, onDelete, onUpdate }) {
               {isOpen && (
                 <div style={{ background: "#141414", borderRadius: "0 0 8px 8px" }}>
                   {[...items].sort((a, b) => entryDate(b) - entryDate(a)).map((e, i) => (
-                    <EntryRow key={e.id} entry={e} onDelete={onDelete} onUpdate={onUpdate} showBorder={i > 0} />
+                    <EntryRow key={e.id} entry={e} onDelete={onDelete} showBorder={i > 0} />
                   ))}
                 </div>
               )}
@@ -385,14 +381,6 @@ export default function App() {
     await supabase.from("money_entries").delete().eq("id", id);
   };
 
-  const updateEntry = async (id, newChange, newNote) => {
-    const target = entries.find(e => e.id === id);
-    if (!target) return;
-    setEntries(prev => prev.map(e => e.id === id ? { ...e, change: newChange, note: newNote } : e));
-    setBalance(prev => prev - Number(target.change) + newChange);
-    await supabase.from("money_entries").update({ change: newChange, note: newNote }).eq("id", id);
-  };
-
   const handleKey = (e) => { if (e.key === "Enter") apply(1); };
 
   return (
@@ -475,8 +463,8 @@ export default function App() {
           </button>
         </div>
 
-        {!loading && <TodayLog entries={entries} now={now} onDelete={deleteEntry} onUpdate={updateEntry} />}
-        {!loading && <WeeklyLog entries={entries} now={now} onDelete={deleteEntry} onUpdate={updateEntry} />}
+        {!loading && <ThisWeekLog entries={entries} now={now} onDelete={deleteEntry} />}
+        {!loading && <WeeklyLog entries={entries} now={now} onDelete={deleteEntry} />}
 
         {!loading && (
           <div style={styles.resetWrap}>
