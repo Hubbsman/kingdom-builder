@@ -252,9 +252,13 @@ function WeeklyLog({ entries, now, onDelete }) {
 
   const weekKey = d => `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}-W${Math.ceil(d.getDate() / 7)}`;
   const weekLabel = d => `${d.toLocaleDateString("en-US", { month: "long" })} Week ${Math.ceil(d.getDate() / 7)}`;
-  const currentWK = weekKey(now);
 
-  const past = entries.filter(e => weekKey(entryDate(e)) !== currentWK);
+  // Use the same calendar-week boundary as ThisWeekLog so there's no overlap
+  const calWeekStart = new Date(now);
+  calWeekStart.setDate(now.getDate() - now.getDay());
+  calWeekStart.setHours(0, 0, 0, 0);
+
+  const past = entries.filter(e => entryDate(e) < calWeekStart);
   if (!past.length) return null;
 
   const groups = {};
@@ -270,7 +274,7 @@ function WeeklyLog({ entries, now, onDelete }) {
 
   return (
     <div style={{ marginTop: 14 }}>
-      <div style={{ fontSize: 10, color: "#3a3a3a", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>Weekly</div>
+      <div style={{ fontSize: 10, color: "#555", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>Weekly</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
         {weeks.map(([k, { label, items, net }]) => {
           const isOpen = expanded === k;
