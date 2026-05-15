@@ -141,7 +141,8 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
           return (
             <g key={i}
             onPointerDown={(e) => { dragRef.current = { y: e.clientY, moved: false }; }}
-            onPointerMove={(e) => { if (Math.abs(e.clientY - dragRef.current.y) > 8) dragRef.current.moved = true; }}
+            onPointerMove={(e) => { if (Math.abs(e.clientY - dragRef.current.y) > 12) dragRef.current.moved = true; }}
+            onPointerCancel={() => { dragRef.current.moved = true; }}
             onPointerUp={() => { if (!dragRef.current.moved) handleTap(i); }}
             style={{ cursor: isFuture ? "default" : "pointer" }}>
               {/* Full-column hit target — rgba so it's actually clickable */}
@@ -558,6 +559,7 @@ const styles = {
     minHeight: "100dvh",
     background: "#0f0f0f",
     display: "flex",
+    alignItems: "flex-start",
     justifyContent: "center",
     padding: "70px 20px 60px",
     fontFamily: "'Inter', 'Segoe UI', sans-serif",
