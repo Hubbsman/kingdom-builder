@@ -17,19 +17,21 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showReset, setShowReset] = useState(false);
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
-    fetchEntries();
-  }, []);
+  useEffect(() => { fetchEntries(); }, []);
 
   const fetchEntries = async () => {
     setLoading(true);
+    setError(null);
     const { data, error } = await supabase
       .from("money_entries")
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (!error && data) {
+    if (error) {
+      setError(error.message);
+    } else if (data) {
       setEntries(data);
       setBalance(data.reduce((sum, e) => sum + Number(e.change), 0));
     }
@@ -40,6 +42,7 @@ export default function App() {
     const val = parseFloat(amount);
     if (!val || isNaN(val) || val <= 0) return;
     setSaving(true);
+    setError(null);
 
     const { data, error } = await supabase
       .from("money_entries")
@@ -51,7 +54,9 @@ export default function App() {
       .select()
       .single();
 
-    if (!error && data) {
+    if (error) {
+      setError(error.message);
+    } else if (data) {
       setEntries((prev) => [data, ...prev]);
       setBalance((prev) => prev + Number(data.change));
       setAmount("");
@@ -62,11 +67,14 @@ export default function App() {
 
   const reset = async () => {
     setSaving(true);
+    setError(null);
     const { error } = await supabase
       .from("money_entries")
       .delete()
       .neq("id", "00000000-0000-0000-0000-000000000000");
-    if (!error) {
+    if (error) {
+      setError(error.message);
+    } else {
       setEntries([]);
       setBalance(0);
     }
@@ -74,9 +82,7 @@ export default function App() {
     setSaving(false);
   };
 
-  const handleKey = (e) => {
-    if (e.key === "Enter") apply(1);
-  };
+  const handleKey = (e) => { if (e.key === "Enter") apply(1); };
 
   return (
     <div style={styles.root}>
@@ -94,6 +100,7 @@ export default function App() {
         <input
           style={styles.input}
           type="number"
+          inputMode="decimal"
           placeholder="0.00"
           value={amount}
           min="0"
@@ -129,6 +136,12 @@ export default function App() {
           </button>
         </div>
 
+        {error && (
+          <div style={styles.errorBox}>
+            {error}
+          </div>
+        )}
+
         {!loading && entries.length > 0 && (
           <div style={styles.log}>
             {entries.map((e) => (
@@ -156,14 +169,14 @@ export default function App() {
               <div style={styles.confirmRow}>
                 <span style={styles.confirmText}>Erase everything?</span>
                 <button
-                  style={{ ...styles.btn, ...styles.btnSub, padding: "6px 16px", opacity: saving ? 0.5 : 1 }}
+                  style={{ ...styles.btn, ...styles.btnSub, padding: "6px 16px", flex: "none", opacity: saving ? 0.5 : 1 }}
                   onClick={reset}
                   disabled={saving}
                 >
                   Yes
                 </button>
                 <button
-                  style={{ ...styles.btn, background: "#2a2a2a", padding: "6px 16px", color: "#aaa" }}
+                  style={{ ...styles.btn, background: "#2a2a2a", padding: "6px 16px", flex: "none", color: "#aaa" }}
                   onClick={() => setShowReset(false)}
                 >
                   No
@@ -184,7 +197,7 @@ const styles = {
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "center",
-    padding: "40px 16px 80px",
+    padding: "60px 20px 40px",
     fontFamily: "'Inter', 'Segoe UI', sans-serif",
     boxSizing: "border-box",
   },
@@ -193,28 +206,28 @@ const styles = {
     maxWidth: 480,
     display: "flex",
     flexDirection: "column",
-    gap: 12,
+    gap: 10,
   },
   balanceLabel: {
     color: "#666",
-    fontSize: 13,
+    fontSize: 12,
     letterSpacing: "0.12em",
     textTransform: "uppercase",
-    marginBottom: -6,
+    marginBottom: -4,
   },
   balance: {
-    fontSize: 52,
+    fontSize: 44,
     fontWeight: 700,
     letterSpacing: "-0.02em",
     lineHeight: 1,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   loadingBalance: {
-    fontSize: 52,
+    fontSize: 44,
     fontWeight: 700,
     color: "#333",
     lineHeight: 1,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   input: {
     background: "#1a1a1a",
@@ -222,14 +235,14 @@ const styles = {
     borderRadius: 10,
     color: "#e2e2e2",
     fontSize: 18,
-    padding: "14px 16px",
+    padding: "12px 16px",
     outline: "none",
     width: "100%",
     boxSizing: "border-box",
   },
   noteInput: {
     fontSize: 14,
-    padding: "10px 16px",
+    padding: "9px 16px",
     color: "#aaa",
   },
   btnRow: {
@@ -243,7 +256,7 @@ const styles = {
     borderRadius: 10,
     fontSize: 16,
     fontWeight: 600,
-    padding: "14px 0",
+    padding: "13px 0",
     cursor: "pointer",
   },
   btnAdd: {
@@ -254,12 +267,20 @@ const styles = {
     background: "#3a1a1a",
     color: "#ff6b6b",
   },
+  errorBox: {
+    background: "#2a1a1a",
+    border: "1px solid #5a2a2a",
+    borderRadius: 8,
+    color: "#ff6b6b",
+    fontSize: 12,
+    padding: "8px 12px",
+  },
   log: {
-    marginTop: 8,
+    marginTop: 4,
     display: "flex",
     flexDirection: "column",
     gap: 6,
-    maxHeight: 360,
+    maxHeight: 280,
     overflowY: "auto",
   },
   entry: {
@@ -268,7 +289,7 @@ const styles = {
     alignItems: "center",
     background: "#1a1a1a",
     borderRadius: 8,
-    padding: "10px 14px",
+    padding: "9px 14px",
     gap: 8,
   },
   entryLeft: {
@@ -290,7 +311,7 @@ const styles = {
     whiteSpace: "nowrap",
   },
   resetWrap: {
-    marginTop: 12,
+    marginTop: 8,
     display: "flex",
     justifyContent: "center",
   },
@@ -300,7 +321,7 @@ const styles = {
     borderRadius: 8,
     color: "#555",
     fontSize: 13,
-    padding: "8px 20px",
+    padding: "7px 20px",
     cursor: "pointer",
   },
   confirmRow: {
