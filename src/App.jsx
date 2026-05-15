@@ -143,66 +143,132 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
   );
 }
 
-function DailyLog({ entries }) {
-  const [expanded, setExpanded] = useState(null);
-  if (!entries.length) return null;
+function EntryRow({ entry, onDelete, onUpdate, showBorder }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(Math.abs(Number(entry.change)).toString());
+  const [editNote, setEditNote] = useState(entry.note || "");
+  const isNeg = Number(entry.change) < 0;
 
-  const groups = {};
-  entries.forEach((e) => {
-    const d = entryDate(e);
-    const key = d.toLocaleDateString("en-CA"); // YYYY-MM-DD
-    if (!groups[key]) groups[key] = { date: d, items: [], net: 0 };
-    groups[key].items.push(e);
-    groups[key].net += Number(e.change);
-  });
+  const save = () => {
+    const num = parseFloat(val);
+    if (!num || isNaN(num) || num <= 0) return;
+    onUpdate(entry.id, isNeg ? -num : num, editNote.trim() || null);
+    setEditing(false);
+  };
 
-  const dayList = Object.entries(groups).sort(([a], [b]) => b.localeCompare(a));
+  const cancel = () => {
+    setEditing(false);
+    setVal(Math.abs(Number(entry.change)).toString());
+    setEditNote(entry.note || "");
+  };
+
+  const base = { padding: "8px 14px", borderTop: showBorder ? "1px solid #1e1e1e" : "none" };
+  const inputStyle = { background: "#1f1f1f", border: "1px solid #2a2a2a", borderRadius: 6, color: "#e2e2e2", outline: "none", padding: "6px 10px" };
+
+  if (editing) {
+    return (
+      <div style={{ ...base, display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input type="number" value={val} onChange={e => setVal(e.target.value)}
+            style={{ ...inputStyle, flex: 1, fontSize: 14 }} />
+          <input type="text" value={editNote} onChange={e => setEditNote(e.target.value)} placeholder="Note"
+            style={{ ...inputStyle, flex: 2, fontSize: 13, color: "#aaa" }} />
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onPointerDown={save} style={{ flex: 1, background: "#1a3a2a", border: "none", borderRadius: 6, color: "#6bffb8", fontSize: 13, padding: "7px", cursor: "pointer" }}>Save</button>
+          <button onPointerDown={cancel} style={{ flex: 1, background: "#222", border: "none", borderRadius: 6, color: "#555", fontSize: 13, padding: "7px", cursor: "pointer" }}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 2 }}>
-      {dayList.map(([key, { date, items, net }]) => {
-        const isOpen = expanded === key;
-        const label = date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-        return (
-          <div key={key}>
-            <div
-              style={{
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-                background: "#1a1a1a", padding: "10px 14px", cursor: "pointer",
-                borderRadius: isOpen ? "8px 8px 0 0" : 8,
-              }}
-              onPointerDown={() => setExpanded(isOpen ? null : key)}
-            >
-              <span style={{ fontSize: 13, color: "#666" }}>{label}</span>
-              <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
-                {net > 0 ? "+" : ""}{fmt(net)}
-              </span>
-            </div>
-            {isOpen && (
-              <div style={{ background: "#141414", borderRadius: "0 0 8px 8px" }}>
-                {[...items]
-                  .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-                  .map((e) => (
-                    <div key={e.id} style={{
-                      display: "flex", justifyContent: "space-between", alignItems: "center",
-                      padding: "8px 14px", borderTop: "1px solid #1e1e1e",
-                    }}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: Number(e.change) < 0 ? "#ff6b6b" : "#6bffb8" }}>
-                          {Number(e.change) > 0 ? "+" : ""}{fmt(Number(e.change))}
-                        </span>
-                        {e.note && <span style={{ fontSize: 11, color: "#555" }}>{e.note}</span>}
-                      </div>
-                      <span style={{ fontSize: 11, color: "#333" }}>
-                        {new Date(e.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-                      </span>
-                    </div>
-                  ))}
+    <div style={{ ...base, display: "flex", alignItems: "center", gap: 8 }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: isNeg ? "#ff6b6b" : "#6bffb8" }}>
+          {isNeg ? "" : "+"}{fmt(Number(entry.change))}
+        </span>
+        {entry.note && <span style={{ fontSize: 11, color: "#555" }}>{entry.note}</span>}
+      </div>
+      <span style={{ fontSize: 11, color: "#333" }}>
+        {entryDate(entry).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+      </span>
+      <button onPointerDown={() => setEditing(true)}
+        style={{ background: "none", border: "none", color: "#3a3a3a", fontSize: 15, cursor: "pointer", padding: "4px 6px", lineHeight: 1 }}>✎</button>
+      <button onPointerDown={() => onDelete(entry.id)}
+        style={{ background: "none", border: "none", color: "#4a2020", fontSize: 18, cursor: "pointer", padding: "4px 6px", lineHeight: 1 }}>×</button>
+    </div>
+  );
+}
+
+function TodayLog({ entries, now, onDelete, onUpdate }) {
+  const todayKey = now.toLocaleDateString("en-CA");
+  const todayEntries = entries
+    .filter(e => entryDate(e).toLocaleDateString("en-CA") === todayKey)
+    .sort((a, b) => entryDate(b) - entryDate(a));
+  if (!todayEntries.length) return null;
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontSize: 10, color: "#3a3a3a", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>Today</div>
+      <div style={{ background: "#1a1a1a", borderRadius: 8 }}>
+        {todayEntries.map((e, i) => (
+          <EntryRow key={e.id} entry={e} onDelete={onDelete} onUpdate={onUpdate} showBorder={i > 0} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WeeklyLog({ entries, now, onDelete, onUpdate }) {
+  const [expanded, setExpanded] = useState(null);
+  const todayKey = now.toLocaleDateString("en-CA");
+  const past = entries.filter(e => entryDate(e).toLocaleDateString("en-CA") !== todayKey);
+  if (!past.length) return null;
+
+  const weekKey = d => `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}-W${Math.ceil(d.getDate() / 7)}`;
+  const weekLabel = d => `${d.toLocaleDateString("en-US", { month: "long" })} Week ${Math.ceil(d.getDate() / 7)}`;
+
+  const groups = {};
+  past.forEach(e => {
+    const d = entryDate(e);
+    const k = weekKey(d);
+    if (!groups[k]) groups[k] = { label: weekLabel(d), items: [], net: 0 };
+    groups[k].items.push(e);
+    groups[k].net += Number(e.change);
+  });
+
+  const weeks = Object.entries(groups).sort(([a], [b]) => b.localeCompare(a));
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ fontSize: 10, color: "#3a3a3a", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>Weekly</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        {weeks.map(([k, { label, items, net }]) => {
+          const isOpen = expanded === k;
+          return (
+            <div key={k}>
+              <div
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                  background: "#1a1a1a", padding: "10px 14px", cursor: "pointer",
+                  borderRadius: isOpen ? "8px 8px 0 0" : 8 }}
+                onPointerDown={() => setExpanded(isOpen ? null : k)}
+              >
+                <span style={{ fontSize: 13, color: "#666" }}>{label}</span>
+                <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
+                  {net > 0 ? "+" : ""}{fmt(net)}
+                </span>
               </div>
-            )}
-          </div>
-        );
-      })}
+              {isOpen && (
+                <div style={{ background: "#141414", borderRadius: "0 0 8px 8px" }}>
+                  {[...items].sort((a, b) => entryDate(b) - entryDate(a)).map((e, i) => (
+                    <EntryRow key={e.id} entry={e} onDelete={onDelete} onUpdate={onUpdate} showBorder={i > 0} />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -260,13 +326,13 @@ export default function App() {
     setSaving(true);
     setError(null);
 
-    const entryDate = selectedDay || now;
+    const targetDate = selectedDay || now;
     const optimistic = {
       id: crypto.randomUUID(),
       change: sign * val,
       note: note.trim() || null,
-      ts: entryDate.toISOString(),
-      created_at: entryDate.toISOString(),
+      ts: targetDate.toISOString(),
+      created_at: targetDate.toISOString(),
     };
 
     setEntries((prev) => [optimistic, ...prev]);
@@ -310,6 +376,22 @@ export default function App() {
     }
     setShowReset(false);
     setSaving(false);
+  };
+
+  const deleteEntry = async (id) => {
+    const target = entries.find(e => e.id === id);
+    if (!target) return;
+    setEntries(prev => prev.filter(e => e.id !== id));
+    setBalance(prev => prev - Number(target.change));
+    await supabase.from("money_entries").delete().eq("id", id);
+  };
+
+  const updateEntry = async (id, newChange, newNote) => {
+    const target = entries.find(e => e.id === id);
+    if (!target) return;
+    setEntries(prev => prev.map(e => e.id === id ? { ...e, change: newChange, note: newNote } : e));
+    setBalance(prev => prev - Number(target.change) + newChange);
+    await supabase.from("money_entries").update({ change: newChange, note: newNote }).eq("id", id);
   };
 
   const handleKey = (e) => { if (e.key === "Enter") apply(1); };
@@ -394,7 +476,8 @@ export default function App() {
           </button>
         </div>
 
-        {!loading && <DailyLog entries={entries} />}
+        {!loading && <TodayLog entries={entries} now={now} onDelete={deleteEntry} onUpdate={updateEntry} />}
+        {!loading && <WeeklyLog entries={entries} now={now} onDelete={deleteEntry} onUpdate={updateEntry} />}
 
         {!loading && (
           <div style={styles.resetWrap}>
