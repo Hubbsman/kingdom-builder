@@ -44,23 +44,35 @@ export default function App() {
     setSaving(true);
     setError(null);
 
+    const optimistic = {
+      id: crypto.randomUUID(),
+      change: sign * val,
+      note: note.trim() || null,
+      ts: new Date().toLocaleString(),
+      created_at: new Date().toISOString(),
+    };
+
+    // Update UI immediately so button always feels responsive
+    setEntries((prev) => [optimistic, ...prev]);
+    setBalance((prev) => prev + optimistic.change);
+    setAmount("");
+    setNote("");
+
     const { data, error } = await supabase
       .from("money_entries")
       .insert({
-        change: sign * val,
-        note: note.trim() || null,
-        ts: new Date().toLocaleString(),
+        change: optimistic.change,
+        note: optimistic.note,
+        ts: optimistic.ts,
       })
       .select()
       .single();
 
     if (error) {
-      setError(error.message);
+      setError("Not saved to cloud: " + error.message);
     } else if (data) {
-      setEntries((prev) => [data, ...prev]);
-      setBalance((prev) => prev + Number(data.change));
-      setAmount("");
-      setNote("");
+      // Swap optimistic entry for the real one from Supabase
+      setEntries((prev) => prev.map((e) => (e.id === optimistic.id ? data : e)));
     }
     setSaving(false);
   };
@@ -87,6 +99,7 @@ export default function App() {
   return (
     <div style={styles.root}>
       <div style={styles.card}>
+        {error && <div style={styles.errorBox}>{error}</div>}
         <div style={styles.balanceLabel}>Balance</div>
 
         {loading ? (
@@ -135,12 +148,6 @@ export default function App() {
             − Subtract
           </button>
         </div>
-
-        {error && (
-          <div style={styles.errorBox}>
-            {error}
-          </div>
-        )}
 
         {!loading && entries.length > 0 && (
           <div style={styles.log}>
