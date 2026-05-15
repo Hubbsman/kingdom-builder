@@ -339,7 +339,6 @@ export default function App() {
     setBalance((prev) => prev + optimistic.change);
     setAmount("");
     setNote("");
-    setSelectedDay(null);
 
     const { data, error } = await supabase
       .from("money_entries")
