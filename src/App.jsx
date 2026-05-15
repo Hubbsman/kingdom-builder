@@ -12,20 +12,32 @@ const fmt = (n) =>
 // ts is stored as ISO when we write it; old entries used locale strings — fall back to created_at
 const entryDate = (e) => { const t = new Date(e.ts); return isNaN(t) ? new Date(e.created_at) : t; };
 
-function catmullPath(pts, tension = 0.4) {
-  if (pts.length === 0) return "";
-  if (pts.length === 1) return `M${pts[0].x},${pts[0].y}`;
+function monotonicPath(pts) {
+  const n = pts.length;
+  if (n === 0) return "";
+  if (n === 1) return `M${pts[0].x},${pts[0].y}`;
+
+  const slopes = [];
+  for (let i = 0; i < n - 1; i++)
+    slopes.push((pts[i + 1].y - pts[i].y) / (pts[i + 1].x - pts[i].x));
+
+  const t = [slopes[0]];
+  for (let i = 1; i < n - 1; i++)
+    t.push(slopes[i - 1] * slopes[i] <= 0 ? 0 : (slopes[i - 1] + slopes[i]) / 2);
+  t.push(slopes[n - 2]);
+
+  for (let i = 0; i < n - 1; i++) {
+    if (Math.abs(slopes[i]) < 1e-9) { t[i] = t[i + 1] = 0; continue; }
+    const a = t[i] / slopes[i], b = t[i + 1] / slopes[i], sq = a * a + b * b;
+    if (sq > 9) { const s = 3 / Math.sqrt(sq); t[i] = s * a * slopes[i]; t[i + 1] = s * b * slopes[i]; }
+  }
+
   let d = `M${pts[0].x},${pts[0].y}`;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[Math.max(i - 1, 0)];
-    const p1 = pts[i];
-    const p2 = pts[i + 1];
-    const p3 = pts[Math.min(i + 2, pts.length - 1)];
-    const cp1x = p1.x + (p2.x - p0.x) * tension;
-    const cp1y = p1.y + (p2.y - p0.y) * tension;
-    const cp2x = p2.x - (p3.x - p1.x) * tension;
-    const cp2y = p2.y - (p3.y - p1.y) * tension;
-    d += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${p2.x},${p2.y}`;
+  for (let i = 0; i < n - 1; i++) {
+    const h = pts[i + 1].x - pts[i].x;
+    d += ` C${pts[i].x + h / 3},${pts[i].y + (t[i] * h) / 3}` +
+         ` ${pts[i + 1].x - h / 3},${pts[i + 1].y - (t[i + 1] * h) / 3}` +
+         ` ${pts[i + 1].x},${pts[i + 1].y}`;
   }
   return d;
 }
@@ -75,9 +87,9 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
     .map((v, i) => (v !== null ? { x: toX(i), y: toY(v), v, i } : null))
     .filter(Boolean);
 
-  const linePath = catmullPath(pts);
+  const linePath = monotonicPath(pts);
   const areaPath = linePath
-    ? `${linePath} L${pts[pts.length - 1].x},${padTop + innerH} L${pts[0].x},${padTop + innerH} Z`
+    ? `${linePath} L${pts[pts.length - 1].x},${zeroY} L${pts[0].x},${zeroY} Z`
     : "";
 
   const zeroY = toY(0);
@@ -114,11 +126,8 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
           );
         })}
 
-        {/* Zero line if range spans negative */}
-        {minVal < 0 && maxVal > 0 && (
-          <line x1={padLeft} y1={zeroY} x2={W - padRight} y2={zeroY}
-            stroke="#333" strokeWidth={1} strokeDasharray="3 3" />
-        )}
+        <line x1={padLeft} y1={zeroY} x2={W - padRight} y2={zeroY}
+          stroke="#2a2a2a" strokeWidth={1} strokeDasharray="3 3" />
 
         {/* Mountain area + line */}
         {areaPath && <path d={areaPath} fill="rgba(107,255,184,0.07)" />}
