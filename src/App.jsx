@@ -470,21 +470,6 @@ export default function App() {
           })()}
         </div>
 
-        {!loading && (
-          <WeeklyChart
-            entries={entries}
-            now={now}
-            selectedDay={selectedDay}
-            onSelectDay={setSelectedDay}
-          />
-        )}
-
-        {selectedDay && (
-          <div style={{ fontSize: 13, color: "#e2e2e2", letterSpacing: "0.01em" }}>
-            {selectedDay.toLocaleDateString("en-US", { weekday: "long" })}
-          </div>
-        )}
-
         <input
           style={styles.input}
           type="number"
@@ -523,6 +508,41 @@ export default function App() {
             − Subtract
           </button>
         </div>
+
+      </div>
+    </div>
+    </div>
+
+    {/* Calendar tab */}
+    <div style={{ display: activeTab === "calendar" ? "block" : "none" }}>
+    <div style={{ ...styles.root, paddingBottom: 90 }}>
+      <div style={styles.card}>
+        {!loading && (
+          <WeeklyChart
+            entries={entries}
+            now={now}
+            selectedDay={selectedDay}
+            onSelectDay={setSelectedDay}
+          />
+        )}
+
+        {!loading && selectedDay && (() => {
+          const ds = new Date(selectedDay); ds.setHours(0, 0, 0, 0);
+          const de = new Date(selectedDay); de.setHours(23, 59, 59, 999);
+          const net = entries
+            .filter(e => { const t = entryDate(e); return t >= ds && t <= de; })
+            .reduce((s, e) => s + Number(e.change), 0);
+          return (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 13, color: "#e2e2e2" }}>
+                {selectedDay.toLocaleDateString("en-US", { weekday: "long" })}
+              </span>
+              <span style={{ fontSize: 20, fontWeight: 700, color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
+                {net > 0 ? "+" : ""}{fmt(net)}
+              </span>
+            </div>
+          );
+        })()}
 
         {!loading && <ThisWeekLog entries={entries} now={now} onDelete={deleteEntry} />}
         {!loading && <WeeklyLog entries={entries} now={now} onDelete={deleteEntry} />}
@@ -565,6 +585,13 @@ export default function App() {
       >
         <span style={styles.tabIcon}>⚖</span>
         <span style={styles.tabLabel}>Balance</span>
+      </button>
+      <button
+        style={{ ...styles.tabBtn, color: activeTab === "calendar" ? "#6bffb8" : "#3a3a3a" }}
+        onClick={() => setActiveTab("calendar")}
+      >
+        <span style={styles.tabIcon}>◫</span>
+        <span style={styles.tabLabel}>Calendar</span>
       </button>
       <button
         style={{ ...styles.tabBtn, color: activeTab === "mentor" ? "#6bffb8" : "#3a3a3a" }}

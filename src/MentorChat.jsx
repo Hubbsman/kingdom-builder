@@ -138,12 +138,13 @@ export default function MentorChat() {
       const response = await sendToMentor(text);
       appendLocal("assistant", response);
     } catch (err) {
-      appendLocal(
-        "assistant",
+      const msg =
         err.message === "NO_KEY"
           ? "No API key set. Tap ⚙ to add your Gemini key."
-          : `Error: ${err.message}\n\nIf tables are missing, run the SQL migration in Supabase.`
-      );
+          : err.message === "RATE_LIMIT"
+          ? "Rate limit hit. Your API key needs billing enabled.\n\nGo to console.cloud.google.com → select your project → Billing → Link a billing account.\n\nGemini costs ~$0.10/month for normal use."
+          : `Error: ${err.message}`;
+      appendLocal("assistant", msg);
     }
     setLoading(false);
   }
