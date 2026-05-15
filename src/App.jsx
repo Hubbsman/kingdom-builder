@@ -9,12 +9,11 @@ const supabase = createClient(
 const fmt = (n) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 
-function WeeklyChart({ entries }) {
+function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
   const days = ["S", "M", "T", "W", "T", "F", "S"];
-  const today = new Date();
-  const dow = today.getDay();
-  const weekStart = new Date(today);
-  weekStart.setDate(today.getDate() - dow);
+  const dow = now.getDay();
+  const weekStart = new Date(now);
+  weekStart.setDate(now.getDate() - dow);
   weekStart.setHours(0, 0, 0, 0);
 
   const balances = days.map((_, i) => {
@@ -58,6 +57,16 @@ function WeeklyChart({ entries }) {
   }
 
   const zeroY = toY(0);
+  const selectedDow = selectedDay ? selectedDay.getDay() : null;
+
+  const handleClick = (i) => {
+    if (i > dow) return;
+    if (selectedDow === i) { onSelectDay(null); return; }
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    d.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), 0);
+    onSelectDay(d);
+  };
 
   return (
     <div style={{ width: "100%", marginTop: 10, marginBottom: 2 }}>
@@ -69,23 +78,28 @@ function WeeklyChart({ entries }) {
           const x = toX(i);
           const pt = pts.find((p) => p.i === i);
           const isToday = i === dow;
+          const isSelected = selectedDow === i;
+          const isFuture = i > dow;
           return (
-            <g key={i}>
-              {pt && (
+            <g key={i} onClick={() => handleClick(i)} style={{ cursor: isFuture ? "default" : "pointer" }}>
+              <rect x={x - 14} y={0} width={28} height={H + 22} fill="transparent" />
+              {pt ? (
                 <circle
                   cx={x} cy={pt.y}
-                  r={isToday ? 5 : 3}
-                  fill={isToday ? "#6bffb8" : "#1e1e1e"}
-                  stroke={isToday ? "#6bffb8" : "#3a3a3a"}
+                  r={isSelected ? 6 : isToday ? 5 : 3}
+                  fill={isSelected ? "#fff" : isToday ? "#6bffb8" : "#1e1e1e"}
+                  stroke={isSelected ? "#fff" : isToday ? "#6bffb8" : "#3a3a3a"}
                   strokeWidth={1.5}
                 />
-              )}
+              ) : !isFuture ? (
+                <circle cx={x} cy={toY(0)} r={3} fill="#1e1e1e" stroke={isSelected ? "#fff" : "#2a2a2a"} strokeWidth={1} />
+              ) : null}
               <text
                 x={x} y={H + 18}
                 textAnchor="middle"
                 fontSize={10}
                 fontFamily="Inter, Segoe UI, sans-serif"
-                fill={isToday ? "#6bffb8" : "#444"}
+                fill={isSelected ? "#fff" : isToday ? "#6bffb8" : isFuture ? "#2a2a2a" : "#444"}
               >
                 {label}
               </text>
@@ -106,8 +120,26 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [showReset, setShowReset] = useState(false);
   const [error, setError] = useState(null);
+  const [now, setNow] = useState(new Date());
+  const [selectedDay, setSelectedDay] = useState(null);
 
   useEffect(() => { fetchEntries(); }, []);
+
+  useEffect(() => {
+    let timer;
+    const schedule = () => {
+      const n = new Date();
+      const midnight = new Date(n);
+      midnight.setHours(24, 0, 0, 0);
+      timer = setTimeout(() => {
+        setNow(new Date());
+        setSelectedDay(null);
+        schedule();
+      }, midnight - n);
+    };
+    schedule();
+    return () => clearTimeout(timer);
+  }, []);
 
   const fetchEntries = async () => {
     setLoading(true);
@@ -132,19 +164,20 @@ export default function App() {
     setSaving(true);
     setError(null);
 
+    const entryDate = selectedDay || now;
     const optimistic = {
       id: crypto.randomUUID(),
       change: sign * val,
       note: note.trim() || null,
-      ts: new Date().toLocaleString(),
-      created_at: new Date().toISOString(),
+      ts: entryDate.toLocaleString(),
+      created_at: entryDate.toISOString(),
     };
 
-    // Update UI immediately so button always feels responsive
     setEntries((prev) => [optimistic, ...prev]);
     setBalance((prev) => prev + optimistic.change);
     setAmount("");
     setNote("");
+    setSelectedDay(null);
 
     const { data, error } = await supabase
       .from("money_entries")
@@ -152,6 +185,7 @@ export default function App() {
         change: optimistic.change,
         note: optimistic.note,
         ts: optimistic.ts,
+        created_at: optimistic.created_at,
       })
       .select()
       .single();
@@ -189,9 +223,9 @@ export default function App() {
       <div style={styles.card}>
         {error && <div style={styles.errorBox}>{error}</div>}
         <div style={styles.dateHeader}>
-          {new Date().toLocaleDateString("en-US", { weekday: "long" })}
+          {now.toLocaleDateString("en-US", { weekday: "long" })}
           <span style={styles.dateDay}>
-            {" · "}{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            {" · "}{now.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
           </span>
         </div>
 
@@ -205,7 +239,25 @@ export default function App() {
           </div>
         )}
 
-        {!loading && <WeeklyChart entries={entries} />}
+        {!loading && (
+          <WeeklyChart
+            entries={entries}
+            now={now}
+            selectedDay={selectedDay}
+            onSelectDay={setSelectedDay}
+          />
+        )}
+
+        {selectedDay && (
+          <div style={styles.dayTag}>
+            <span>
+              Adding to{" "}
+              <strong>{selectedDay.toLocaleDateString("en-US", { weekday: "long" })}</strong>
+              {" · "}{selectedDay.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            </span>
+            <button style={styles.dayTagClose} onClick={() => setSelectedDay(null)}>✕</button>
+          </div>
+        )}
 
         <input
           style={styles.input}
@@ -311,6 +363,26 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: 10,
+  },
+  dayTag: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    background: "#1a2a1a",
+    border: "1px solid #2a4a2a",
+    borderRadius: 8,
+    padding: "7px 12px",
+    fontSize: 12,
+    color: "#6bffb8",
+    marginBottom: -2,
+  },
+  dayTagClose: {
+    background: "none",
+    border: "none",
+    color: "#3a6a3a",
+    fontSize: 13,
+    cursor: "pointer",
+    padding: "0 0 0 8px",
   },
   dateHeader: {
     fontSize: 13,
