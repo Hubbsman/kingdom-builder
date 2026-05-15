@@ -470,6 +470,21 @@ export default function App() {
           })()}
         </div>
 
+        {!loading && (
+          <WeeklyChart
+            entries={entries}
+            now={now}
+            selectedDay={selectedDay}
+            onSelectDay={setSelectedDay}
+          />
+        )}
+
+        {selectedDay && (
+          <div style={{ fontSize: 13, color: "#e2e2e2", letterSpacing: "0.01em" }}>
+            {selectedDay.toLocaleDateString("en-US", { weekday: "long" })}
+          </div>
+        )}
+
         <input
           style={styles.input}
           type="number"
