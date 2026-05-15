@@ -9,6 +9,94 @@ const supabase = createClient(
 const fmt = (n) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 
+function WeeklyChart({ entries }) {
+  const days = ["S", "M", "T", "W", "T", "F", "S"];
+  const today = new Date();
+  const dow = today.getDay();
+  const weekStart = new Date(today);
+  weekStart.setDate(today.getDate() - dow);
+  weekStart.setHours(0, 0, 0, 0);
+
+  const balances = days.map((_, i) => {
+    if (i > dow) return null;
+    const dayEnd = new Date(weekStart);
+    dayEnd.setDate(weekStart.getDate() + i);
+    dayEnd.setHours(23, 59, 59, 999);
+    const iso = dayEnd.toISOString();
+    return entries
+      .filter((e) => e.created_at <= iso)
+      .reduce((sum, e) => sum + Number(e.change), 0);
+  });
+
+  const validVals = balances.filter((v) => v !== null);
+  if (validVals.length === 0) return null;
+
+  const W = 300, H = 80;
+  const padX = 16, padTop = 10, padBot = 8;
+  const innerW = W - padX * 2;
+  const innerH = H - padTop - padBot;
+  const minVal = Math.min(...validVals, 0);
+  const maxVal = Math.max(...validVals, 0);
+  const range = maxVal - minVal || 100;
+  const toY = (v) => padTop + innerH - ((v - minVal) / range) * innerH;
+  const toX = (i) => padX + (i / 6) * innerW;
+
+  const pts = balances
+    .map((v, i) => (v !== null ? { x: toX(i), y: toY(v), i } : null))
+    .filter(Boolean);
+
+  let linePath = "";
+  let areaPath = "";
+  if (pts.length >= 1) {
+    linePath = `M${pts[0].x},${pts[0].y}`;
+    for (let k = 1; k < pts.length; k++) {
+      const cp = (pts[k - 1].x + pts[k].x) / 2;
+      linePath += ` C${cp},${pts[k - 1].y} ${cp},${pts[k].y} ${pts[k].x},${pts[k].y}`;
+    }
+    const bottomY = padTop + innerH;
+    areaPath = `${linePath} L${pts[pts.length - 1].x},${bottomY} L${pts[0].x},${bottomY} Z`;
+  }
+
+  const zeroY = toY(0);
+
+  return (
+    <div style={{ width: "100%", marginTop: 10, marginBottom: 2 }}>
+      <svg viewBox={`0 0 ${W} ${H + 22}`} style={{ width: "100%", overflow: "visible" }}>
+        <line x1={padX} y1={zeroY} x2={W - padX} y2={zeroY} stroke="#252525" strokeWidth={1} strokeDasharray="3 3" />
+        {areaPath && <path d={areaPath} fill="rgba(107,255,184,0.07)" />}
+        {linePath && <path d={linePath} fill="none" stroke="#6bffb8" strokeWidth={1.5} strokeLinecap="round" />}
+        {days.map((label, i) => {
+          const x = toX(i);
+          const pt = pts.find((p) => p.i === i);
+          const isToday = i === dow;
+          return (
+            <g key={i}>
+              {pt && (
+                <circle
+                  cx={x} cy={pt.y}
+                  r={isToday ? 5 : 3}
+                  fill={isToday ? "#6bffb8" : "#1e1e1e"}
+                  stroke={isToday ? "#6bffb8" : "#3a3a3a"}
+                  strokeWidth={1.5}
+                />
+              )}
+              <text
+                x={x} y={H + 18}
+                textAnchor="middle"
+                fontSize={10}
+                fontFamily="Inter, Segoe UI, sans-serif"
+                fill={isToday ? "#6bffb8" : "#444"}
+              >
+                {label}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 export default function App() {
   const [entries, setEntries] = useState([]);
   const [balance, setBalance] = useState(0);
@@ -100,6 +188,13 @@ export default function App() {
     <div style={styles.root}>
       <div style={styles.card}>
         {error && <div style={styles.errorBox}>{error}</div>}
+        <div style={styles.dateHeader}>
+          {new Date().toLocaleDateString("en-US", { weekday: "long" })}
+          <span style={styles.dateDay}>
+            {" · "}{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+          </span>
+        </div>
+
         <div style={styles.balanceLabel}>Balance</div>
 
         {loading ? (
@@ -109,6 +204,8 @@ export default function App() {
             {fmt(balance)}
           </div>
         )}
+
+        {!loading && <WeeklyChart entries={entries} />}
 
         <input
           style={styles.input}
@@ -204,7 +301,7 @@ const styles = {
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "center",
-    padding: "60px 20px 40px",
+    padding: "90px 20px 40px",
     fontFamily: "'Inter', 'Segoe UI', sans-serif",
     boxSizing: "border-box",
   },
@@ -214,6 +311,16 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: 10,
+  },
+  dateHeader: {
+    fontSize: 13,
+    color: "#666",
+    fontWeight: 500,
+    marginBottom: 16,
+    letterSpacing: "0.01em",
+  },
+  dateDay: {
+    color: "#444",
   },
   balanceLabel: {
     color: "#666",

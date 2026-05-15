@@ -1,116 +1,35 @@
 # Kingdom Builder — Claude Instructions
 
-## Project Goal
-This app is a personal operating system focused on:
-- discipline
-- finances
-- routines
-- tasks
-- clarity
-- AI mentorship
-- self-improvement
-- business organization
+## What This App Is
 
-The app should feel:
-- calm
-- structured
-- premium
-- motivating
-- modern
-- emotionally grounding
+A simple manual balance tracker. The user enters an amount and an optional note, then taps Add or Subtract. The app records every transaction to Supabase and displays the running balance plus a full entry log.
 
-Avoid making the app feel:
-- childish
-- overly gamified
-- corporate
-- cluttered
-- chaotic
+That's it. Nothing else.
 
 ---
-
-# Design Philosophy
-
-## Visual Style
-- dark luxury aesthetic
-- zen/minimal atmosphere
-- mobile-first
-- smooth animations
-- premium spacing
-- cinematic feeling
-- soft contrast
-- elegant typography
-
-Avoid:
-- excessive gradients
-- sharp neon colors
-- clutter
-- overcrowded screens
-- cheap startup UI
-
----
-
-# Technical Rules
 
 ## Stack
-- React
-- modular architecture
-- reusable components
-- maintainable structure
 
-## State
-- preserve localStorage persistence
-- avoid breaking current functionality
+- React 18 + Vite
+- Supabase (`money_entries` table) — anon key is hardcoded in `App.jsx`
+- vite-plugin-pwa
+
+---
+
+## Design
+
+- Dark luxury aesthetic — `#0f0f0f` background, `#1a1a1a` surfaces
+- Mobile-first, max-width 480px centered card
+- Inter / Segoe UI font
+- Green `#6bffb8` for positive amounts, red `#ff6b6b` for negative
+- No clutter, no gradients, no neon
+
+---
 
 ## Editing Rules
-- do NOT rewrite the entire app unless explicitly asked
-- make focused edits only
-- preserve visual consistency
-- explain changes after editing
-- keep code clean and readable
 
----
-
-# UX Philosophy
-
-The home screen should answer:
-"What do I need to do today to move my life forward?"
-
-The app should feel:
-- actionable
-- reflective
-- intentional
-- motivating without being cringe
-
-The AI mentor should:
-- challenge excuses
-- encourage clarity
-- feel intelligent
-- avoid cheesy motivational language
-
----
-
-# Current Priorities
-
-Priority order:
-1. Organize project structure
-2. Improve task/reminder system
-3. Improve mobile UX
-4. Improve mentor usefulness
-5. Improve visual consistency
-6. Improve performance
-7. Add lawn care business tools
-
----
-
-# Important
-
-Before major edits:
-- analyze architecture first
-- explain what will change
-- avoid unnecessary complexity
-
-Prioritize:
-- usability
-- clarity
-- consistency
-- maintainability
+- Do NOT add screens, tabs, navigation, or new features unless explicitly asked
+- Make focused edits only
+- Preserve Supabase persistence (do not change table name or column names)
+- Preserve the visual style
+- Read `App.jsx` before editing to verify exact anchor text
