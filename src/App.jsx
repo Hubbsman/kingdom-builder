@@ -62,12 +62,12 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
     .map((v, i) => (v !== null ? { x: toX(i), y: toY(v), v, i } : null))
     .filter(Boolean);
 
+  const zeroY = toY(0);
+
   const lp = linePath(pts);
   const areaPath = lp
     ? `${lp} L${pts[pts.length - 1].x},${zeroY} L${pts[0].x},${zeroY} Z`
     : "";
-
-  const zeroY = toY(0);
   const selectedDow = selectedDay ? selectedDay.getDay() : null;
 
   const fmtShort = (v) => {
