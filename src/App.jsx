@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -26,6 +26,7 @@ function smoothPath(pts) {
 }
 
 function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
+  const dragRef = useRef({ y: 0, moved: false });
   const days = ["S", "M", "T", "W", "T", "F", "S"];
   const dow = now.getDay();
   const weekStart = new Date(now);
@@ -138,7 +139,11 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
           const isSelected = selectedDow === i;
           const isFuture = i > dow;
           return (
-            <g key={i} onPointerDown={() => handleTap(i)} style={{ cursor: isFuture ? "default" : "pointer" }}>
+            <g key={i}
+            onPointerDown={(e) => { dragRef.current = { y: e.clientY, moved: false }; }}
+            onPointerMove={(e) => { if (Math.abs(e.clientY - dragRef.current.y) > 8) dragRef.current.moved = true; }}
+            onPointerUp={() => { if (!dragRef.current.moved) handleTap(i); }}
+            style={{ cursor: isFuture ? "default" : "pointer" }}>
               {/* Full-column hit target — rgba so it's actually clickable */}
               <rect x={x - 14} y={0} width={28} height={H + 24} fill="rgba(0,0,0,0.01)" />
               {pt ? (
@@ -216,13 +221,20 @@ function ThisWeekLog({ entries, now, onDelete }) {
         return (
           <div key={key}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-              background: "#1a1a1a", padding: "10px 14px", cursor: "pointer",
-              borderRadius: isOpen ? "8px 8px 0 0" : 8 }}
-              onPointerDown={() => setExpanded(isOpen ? null : key)}>
+              background: "#1a1a1a", padding: "10px 14px",
+              borderRadius: isOpen ? "8px 8px 0 0" : 8 }}>
               <span style={{ fontSize: 13, color: "#666" }}>{name}</span>
-              <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
-                {net > 0 ? "+" : ""}{fmt(net)}
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
+                  {net > 0 ? "+" : ""}{fmt(net)}
+                </span>
+                <button onClick={() => setExpanded(isOpen ? null : key)}
+                  style={{ background: "none", border: "none", color: "#555", fontSize: 20, cursor: "pointer",
+                    padding: "2px 6px", lineHeight: 1, display: "flex", alignItems: "center",
+                    transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s ease" }}>
+                  ›
+                </button>
+              </div>
             </div>
             {isOpen && (
               <div style={{ background: "#141414", borderRadius: "0 0 8px 8px" }}>
@@ -268,13 +280,20 @@ function WeeklyLog({ entries, now, onDelete }) {
           return (
             <div key={k}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-                background: "#1a1a1a", padding: "10px 14px", cursor: "pointer",
-                borderRadius: isOpen ? "8px 8px 0 0" : 8 }}
-                onPointerDown={() => setExpanded(isOpen ? null : k)}>
+                background: "#1a1a1a", padding: "10px 14px",
+                borderRadius: isOpen ? "8px 8px 0 0" : 8 }}>
                 <span style={{ fontSize: 13, color: "#666" }}>{label}</span>
-                <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
-                  {net > 0 ? "+" : ""}{fmt(net)}
-                </span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
+                    {net > 0 ? "+" : ""}{fmt(net)}
+                  </span>
+                  <button onClick={() => setExpanded(isOpen ? null : k)}
+                    style={{ background: "none", border: "none", color: "#555", fontSize: 20, cursor: "pointer",
+                      padding: "2px 6px", lineHeight: 1, display: "flex", alignItems: "center",
+                      transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s ease" }}>
+                    ›
+                  </button>
+                </div>
               </div>
               {isOpen && (
                 <div style={{ background: "#141414", borderRadius: "0 0 8px 8px" }}>
@@ -539,9 +558,8 @@ const styles = {
     minHeight: "100dvh",
     background: "#0f0f0f",
     display: "flex",
-    alignItems: "flex-start",
     justifyContent: "center",
-    padding: "90px 20px 40px",
+    padding: "70px 20px 60px",
     fontFamily: "'Inter', 'Segoe UI', sans-serif",
     boxSizing: "border-box",
   },
@@ -583,25 +601,28 @@ const styles = {
     color: "#444",
   },
   balanceLabel: {
-    color: "#666",
-    fontSize: 12,
-    letterSpacing: "0.12em",
+    color: "#555",
+    fontSize: 11,
+    letterSpacing: "0.14em",
     textTransform: "uppercase",
-    marginBottom: -4,
+    marginBottom: 4,
+    fontWeight: 500,
   },
   balance: {
-    fontSize: 44,
+    fontSize: 48,
     fontWeight: 700,
-    letterSpacing: "-0.02em",
+    letterSpacing: "-0.03em",
     lineHeight: 1,
     marginBottom: 6,
+    fontVariantNumeric: "tabular-nums",
   },
   loadingBalance: {
-    fontSize: 44,
+    fontSize: 48,
     fontWeight: 700,
     color: "#333",
     lineHeight: 1,
     marginBottom: 6,
+    fontVariantNumeric: "tabular-nums",
   },
   input: {
     background: "#1a1a1a",
