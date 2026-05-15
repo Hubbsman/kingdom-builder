@@ -16,32 +16,36 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
   weekStart.setDate(now.getDate() - dow);
   weekStart.setHours(0, 0, 0, 0);
 
+  // Cumulative balance at end of each day — use Date comparison, not string
   const balances = days.map((_, i) => {
     if (i > dow) return null;
     const dayEnd = new Date(weekStart);
     dayEnd.setDate(weekStart.getDate() + i);
     dayEnd.setHours(23, 59, 59, 999);
-    const iso = dayEnd.toISOString();
     return entries
-      .filter((e) => e.created_at <= iso)
+      .filter((e) => e.created_at && new Date(e.created_at) <= dayEnd)
       .reduce((sum, e) => sum + Number(e.change), 0);
   });
 
   const validVals = balances.filter((v) => v !== null);
   if (validVals.length === 0) return null;
 
-  const W = 300, H = 80;
-  const padX = 16, padTop = 10, padBot = 8;
-  const innerW = W - padX * 2;
+  const W = 300, H = 90;
+  const padLeft = 42, padRight = 8, padTop = 8, padBot = 6;
+  const innerW = W - padLeft - padRight;
   const innerH = H - padTop - padBot;
+
+  // Always anchor 0 so positive/negative is clear
   const minVal = Math.min(...validVals, 0);
   const maxVal = Math.max(...validVals, 0);
-  const range = maxVal - minVal || 100;
+  // If all values identical, spread artificially so chart isn't flat
+  const range = maxVal - minVal || Math.max(Math.abs(maxVal), 10) * 2;
+
   const toY = (v) => padTop + innerH - ((v - minVal) / range) * innerH;
-  const toX = (i) => padX + (i / 6) * innerW;
+  const toX = (i) => padLeft + (i / 6) * innerW;
 
   const pts = balances
-    .map((v, i) => (v !== null ? { x: toX(i), y: toY(v), i } : null))
+    .map((v, i) => (v !== null ? { x: toX(i), y: toY(v), v, i } : null))
     .filter(Boolean);
 
   let linePath = "";
@@ -59,7 +63,12 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
   const zeroY = toY(0);
   const selectedDow = selectedDay ? selectedDay.getDay() : null;
 
-  const handleClick = (i) => {
+  const fmtShort = (v) => {
+    if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}k`;
+    return `$${Math.round(v)}`;
+  };
+
+  const handleTap = (i) => {
     if (i > dow) return;
     if (selectedDow === i) { onSelectDay(null); return; }
     const d = new Date(weekStart);
@@ -70,10 +79,32 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
 
   return (
     <div style={{ width: "100%", marginTop: 10, marginBottom: 2 }}>
-      <svg viewBox={`0 0 ${W} ${H + 22}`} style={{ width: "100%", overflow: "visible" }}>
-        <line x1={padX} y1={zeroY} x2={W - padX} y2={zeroY} stroke="#252525" strokeWidth={1} strokeDasharray="3 3" />
+      <svg viewBox={`0 0 ${W} ${H + 24}`} style={{ width: "100%", overflow: "visible" }}>
+        {/* Horizontal grid lines + y-axis labels */}
+        {[maxVal, (minVal + maxVal) / 2, minVal].map((val, idx) => {
+          const y = toY(val);
+          return (
+            <g key={idx}>
+              <line x1={padLeft} y1={y} x2={W - padRight} y2={y} stroke="#1e1e1e" strokeWidth={1} />
+              <text x={padLeft - 5} y={y + 3.5} textAnchor="end" fontSize={9}
+                fontFamily="Inter, Segoe UI, sans-serif" fill="#3a3a3a">
+                {fmtShort(val)}
+              </text>
+            </g>
+          );
+        })}
+
+        {/* Zero line if range spans negative */}
+        {minVal < 0 && maxVal > 0 && (
+          <line x1={padLeft} y1={zeroY} x2={W - padRight} y2={zeroY}
+            stroke="#333" strokeWidth={1} strokeDasharray="3 3" />
+        )}
+
+        {/* Mountain area + line */}
         {areaPath && <path d={areaPath} fill="rgba(107,255,184,0.07)" />}
         {linePath && <path d={linePath} fill="none" stroke="#6bffb8" strokeWidth={1.5} strokeLinecap="round" />}
+
+        {/* Tappable columns — one per day */}
         {days.map((label, i) => {
           const x = toX(i);
           const pt = pts.find((p) => p.i === i);
@@ -81,26 +112,23 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
           const isSelected = selectedDow === i;
           const isFuture = i > dow;
           return (
-            <g key={i} onClick={() => handleClick(i)} style={{ cursor: isFuture ? "default" : "pointer" }}>
-              <rect x={x - 14} y={0} width={28} height={H + 22} fill="transparent" />
+            <g key={i} onPointerDown={() => handleTap(i)} style={{ cursor: isFuture ? "default" : "pointer" }}>
+              {/* Full-column hit target — rgba so it's actually clickable */}
+              <rect x={x - 14} y={0} width={28} height={H + 24} fill="rgba(0,0,0,0.01)" />
               {pt ? (
-                <circle
-                  cx={x} cy={pt.y}
+                <circle cx={x} cy={pt.y}
                   r={isSelected ? 6 : isToday ? 5 : 3}
-                  fill={isSelected ? "#fff" : isToday ? "#6bffb8" : "#1e1e1e"}
+                  fill={isSelected ? "#fff" : isToday ? "#6bffb8" : "#1a1a1a"}
                   stroke={isSelected ? "#fff" : isToday ? "#6bffb8" : "#3a3a3a"}
                   strokeWidth={1.5}
                 />
               ) : !isFuture ? (
-                <circle cx={x} cy={toY(0)} r={3} fill="#1e1e1e" stroke={isSelected ? "#fff" : "#2a2a2a"} strokeWidth={1} />
+                <circle cx={x} cy={zeroY} r={3}
+                  fill="#1a1a1a" stroke={isSelected ? "#fff" : "#2a2a2a"} strokeWidth={1} />
               ) : null}
-              <text
-                x={x} y={H + 18}
-                textAnchor="middle"
-                fontSize={10}
+              <text x={x} y={H + 20} textAnchor="middle" fontSize={10}
                 fontFamily="Inter, Segoe UI, sans-serif"
-                fill={isSelected ? "#fff" : isToday ? "#6bffb8" : isFuture ? "#2a2a2a" : "#444"}
-              >
+                fill={isSelected ? "#fff" : isToday ? "#6bffb8" : isFuture ? "#252525" : "#444"}>
                 {label}
               </text>
             </g>
