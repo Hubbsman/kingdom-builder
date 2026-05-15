@@ -12,9 +12,17 @@ const fmt = (n) =>
 // ts is stored as ISO when we write it; old entries used locale strings — fall back to created_at
 const entryDate = (e) => { const t = new Date(e.ts); return isNaN(t) ? new Date(e.created_at) : t; };
 
-function linePath(pts) {
+// Cubic bezier with horizontal tangents — smooth curves, zero Y overshoot guaranteed
+function smoothPath(pts) {
   if (pts.length === 0) return "";
-  return pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
+  if (pts.length === 1) return `M${pts[0].x},${pts[0].y}`;
+  let d = `M${pts[0].x},${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i], p1 = pts[i + 1];
+    const cpx = (p1.x - p0.x) / 3;
+    d += ` C${p0.x + cpx},${p0.y} ${p1.x - cpx},${p1.y} ${p1.x},${p1.y}`;
+  }
+  return d;
 }
 
 function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
@@ -49,13 +57,15 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
   const innerW = W - padLeft - padRight;
   const innerH = H - padTop - padBot;
 
-  // Always anchor 0 so positive/negative is clear
-  const minVal = Math.min(...validVals, 0);
-  const maxVal = Math.max(...validVals, 0);
-  // If all values identical, spread artificially so chart isn't flat
-  const range = maxVal - minVal || Math.max(Math.abs(maxVal), 10) * 2;
+  const rawMax = Math.max(...validVals, 0);
+  const rawMin = Math.min(...validVals, 0);
+  // Pad 20% on each side so zero never sits at the edge
+  const pad = Math.max(rawMax * 0.2, Math.abs(rawMin) * 0.2, 8);
+  const displayMax = rawMax + pad;
+  const displayMin = rawMin - pad;
+  const range = displayMax - displayMin;
 
-  const toY = (v) => padTop + innerH - ((v - minVal) / range) * innerH;
+  const toY = (v) => padTop + innerH - ((v - displayMin) / range) * innerH;
   const toX = (i) => padLeft + (i / 6) * innerW;
 
   const pts = balances
@@ -64,7 +74,7 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
 
   const zeroY = toY(0);
 
-  const lp = linePath(pts);
+  const lp = smoothPath(pts);
   const areaPath = lp
     ? `${lp} L${pts[pts.length - 1].x},${zeroY} L${pts[0].x},${zeroY} Z`
     : "";
@@ -87,8 +97,17 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
   return (
     <div style={{ width: "100%", marginTop: 10, marginBottom: 2 }}>
       <svg viewBox={`0 0 ${W} ${H + 24}`} style={{ width: "100%", overflow: "visible" }}>
+        <defs>
+          <clipPath id="clip-above">
+            <rect x={0} y={0} width={W} height={zeroY} />
+          </clipPath>
+          <clipPath id="clip-below">
+            <rect x={0} y={zeroY} width={W} height={H + 24} />
+          </clipPath>
+        </defs>
+
         {/* Horizontal grid lines + y-axis labels */}
-        {[maxVal, (minVal + maxVal) / 2, minVal].map((val, idx) => {
+        {[rawMax, (rawMin + rawMax) / 2, rawMin].map((val, idx) => {
           const y = toY(val);
           return (
             <g key={idx}>
@@ -104,9 +123,12 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
         <line x1={padLeft} y1={zeroY} x2={W - padRight} y2={zeroY}
           stroke="#2a2a2a" strokeWidth={1} strokeDasharray="3 3" />
 
-        {/* Mountain area + line */}
-        {areaPath && <path d={areaPath} fill="rgba(107,255,184,0.07)" />}
-        {lp && <path d={lp} fill="none" stroke="#6bffb8" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />}
+        {/* Area fill: green above zero, red below */}
+        {areaPath && <path d={areaPath} fill="rgba(107,255,184,0.07)" clipPath="url(#clip-above)" />}
+        {areaPath && <path d={areaPath} fill="rgba(255,107,107,0.10)" clipPath="url(#clip-below)" />}
+        {/* Line: green above zero, red below */}
+        {lp && <path d={lp} fill="none" stroke="#6bffb8" strokeWidth={1.5} strokeLinecap="round" clipPath="url(#clip-above)" />}
+        {lp && <path d={lp} fill="none" stroke="#ff6b6b" strokeWidth={1.5} strokeLinecap="round" clipPath="url(#clip-below)" />}
 
         {/* Tappable columns — one per day */}
         {days.map((label, i) => {
