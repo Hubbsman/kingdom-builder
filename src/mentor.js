@@ -49,7 +49,7 @@ When Austin gives roadblocks, adjust the plan. Do not guilt-trip him.
 Be honest about Florida — neither blindly encouraging nor discouraging.`;
 
 // ─── Gemini API ───────────────────────────────────────────────────────────────
-const GEMINI_MODEL = "gemini-2.0-flash";
+const GEMINI_MODEL = "gemini-1.5-flash";
 
 async function callGemini(key, systemInstruction, contents, maxTokens = 900) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
