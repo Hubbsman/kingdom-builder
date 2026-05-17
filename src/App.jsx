@@ -460,15 +460,19 @@ export default function App() {
   const reset = async () => {
     setSaving(true);
     setError(null);
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay());
+    weekStart.setHours(0, 0, 0, 0);
     const { error } = await supabase
       .from("money_entries")
       .delete()
-      .neq("id", "00000000-0000-0000-0000-000000000000");
+      .gte("ts", weekStart.toISOString());
     if (error) {
       setError(error.message);
     } else {
-      setEntries([]);
-      setBalance(0);
+      const kept = entries.filter(e => entryDate(e) < weekStart);
+      setEntries(kept);
+      setBalance(kept.reduce((s, e) => s + Number(e.change), 0));
     }
     setShowReset(false);
     setSaving(false);
