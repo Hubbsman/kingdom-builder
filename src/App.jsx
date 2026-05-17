@@ -412,7 +412,10 @@ export default function App() {
       setError(error.message);
     } else if (data) {
       setEntries(data);
-      setBalance(data.reduce((sum, e) => sum + Number(e.change), 0));
+      const ws = new Date();
+      ws.setDate(ws.getDate() - ws.getDay());
+      ws.setHours(0, 0, 0, 0);
+      setBalance(data.filter(e => entryDate(e) >= ws).reduce((sum, e) => sum + Number(e.change), 0));
     }
     setLoading(false);
   };
@@ -482,7 +485,10 @@ export default function App() {
     const target = entries.find(e => e.id === id);
     if (!target) return;
     setEntries(prev => prev.filter(e => e.id !== id));
-    setBalance(prev => prev - Number(target.change));
+    const ws = new Date(now);
+    ws.setDate(now.getDate() - now.getDay());
+    ws.setHours(0, 0, 0, 0);
+    if (entryDate(target) >= ws) setBalance(prev => prev - Number(target.change));
     await supabase.from("money_entries").delete().eq("id", id);
   };
 
