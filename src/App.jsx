@@ -592,6 +592,7 @@ export default function App() {
           </button>
         </div>
 
+        {!loading && <ThisWeekLog entries={entries} now={now} onDelete={deleteEntry} />}
         {!loading && <WeeklyLog entries={entries} now={now} onDelete={deleteEntry} />}
 
       </div>
