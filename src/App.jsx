@@ -248,12 +248,10 @@ function ThisWeekLog({ entries, now, onDelete }) {
 }
 
 function WeeklyLog({ entries, now, onDelete }) {
-  const [expanded, setExpanded] = useState(null);
+  const [expandedWeek, setExpandedWeek] = useState(null);
+  const [expandedDay, setExpandedDay] = useState(null);
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-  const weekKey = d => `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}-W${Math.ceil(d.getDate() / 7)}`;
-  const weekLabel = d => `${d.toLocaleDateString("en-US", { month: "long" })} Week ${Math.ceil(d.getDate() / 7)}`;
-
-  // Use the same calendar-week boundary as ThisWeekLog so there's no overlap
   const calWeekStart = new Date(now);
   calWeekStart.setDate(now.getDate() - now.getDay());
   calWeekStart.setHours(0, 0, 0, 0);
@@ -261,46 +259,106 @@ function WeeklyLog({ entries, now, onDelete }) {
   const past = entries.filter(e => entryDate(e) < calWeekStart);
   if (!past.length) return null;
 
+  // Group by proper Sun–Sat calendar week (keyed by that week's Sunday date)
   const groups = {};
   past.forEach(e => {
     const d = entryDate(e);
-    const k = weekKey(d);
-    if (!groups[k]) groups[k] = { label: weekLabel(d), items: [], net: 0 };
+    const ws = new Date(d);
+    ws.setDate(d.getDate() - d.getDay());
+    ws.setHours(0, 0, 0, 0);
+    const k = ws.toLocaleDateString("en-CA");
+    if (!groups[k]) {
+      const month = ws.toLocaleDateString("en-US", { month: "long" });
+      const weekNum = Math.ceil(ws.getDate() / 7);
+      groups[k] = { label: `${month} Week ${weekNum}`, weekStart: new Date(ws), items: [], net: 0 };
+    }
     groups[k].items.push(e);
     groups[k].net += Number(e.change);
   });
 
   const weeks = Object.entries(groups).sort(([a], [b]) => b.localeCompare(a));
 
+  const toggleWeek = (k) => {
+    if (expandedWeek === k) { setExpandedWeek(null); setExpandedDay(null); }
+    else { setExpandedWeek(k); setExpandedDay(null); }
+  };
+
   return (
     <div style={{ marginTop: 14 }}>
       <div style={{ fontSize: 10, color: "#555", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>Weekly</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        {weeks.map(([k, { label, items, net }]) => {
-          const isOpen = expanded === k;
+        {weeks.map(([k, { label, weekStart, items, net }]) => {
+          const isWeekOpen = expandedWeek === k;
+
+          const dayMap = {};
+          items.forEach(e => {
+            const d = entryDate(e);
+            const dk = d.toLocaleDateString("en-CA");
+            if (!dayMap[dk]) dayMap[dk] = { items: [], net: 0 };
+            dayMap[dk].items.push(e);
+            dayMap[dk].net += Number(e.change);
+          });
+
+          const allDays = Array.from({ length: 7 }, (_, i) => {
+            const dt = new Date(weekStart);
+            dt.setDate(weekStart.getDate() + i);
+            const dk = dt.toLocaleDateString("en-CA");
+            return { dk, name: dayNames[i], ...(dayMap[dk] || { items: [], net: 0 }), hasEntries: !!dayMap[dk] };
+          });
+
           return (
             <div key={k}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-                background: "#1a1a1a", padding: "10px 14px",
-                borderRadius: isOpen ? "8px 8px 0 0" : 8 }}>
+              <div onClick={() => toggleWeek(k)}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                  background: "#1a1a1a", padding: "10px 14px", cursor: "pointer",
+                  borderRadius: isWeekOpen ? "8px 8px 0 0" : 8 }}>
                 <span style={{ fontSize: 13, color: "#666" }}>{label}</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
                     {net > 0 ? "+" : ""}{fmt(net)}
                   </span>
-                  <button onClick={() => setExpanded(isOpen ? null : k)}
-                    style={{ background: "none", border: "none", color: "#555", fontSize: 20, cursor: "pointer",
-                      padding: "2px 6px", lineHeight: 1, display: "flex", alignItems: "center",
-                      transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s ease" }}>
-                    ›
-                  </button>
+                  <span style={{ color: "#555", fontSize: 20, padding: "2px 6px", lineHeight: 1,
+                    display: "inline-block",
+                    transform: isWeekOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s ease" }}>›</span>
                 </div>
               </div>
-              {isOpen && (
-                <div style={{ background: "#141414", borderRadius: "0 0 8px 8px" }}>
-                  {[...items].sort((a, b) => entryDate(b) - entryDate(a)).map((e, i) => (
-                    <EntryRow key={e.id} entry={e} onDelete={onDelete} showBorder={i > 0} />
-                  ))}
+              {isWeekOpen && (
+                <div style={{ background: "#141414", borderRadius: "0 0 8px 8px", overflow: "hidden" }}>
+                  {allDays.map(({ dk, name, items: dayItems, net: dayNet, hasEntries }, di) => {
+                    const isDayOpen = expandedDay === dk;
+                    return (
+                      <div key={dk}>
+                        <div style={{
+                          padding: "9px 14px",
+                          borderTop: di > 0 ? "1px solid #1e1e1e" : "none",
+                          display: "flex", justifyContent: "space-between", alignItems: "center",
+                          cursor: hasEntries ? "pointer" : "default",
+                        }}
+                          onClick={() => hasEntries && setExpandedDay(isDayOpen ? null : dk)}>
+                          <span style={{ fontSize: 13, color: hasEntries ? "#666" : "#2a2a2a" }}>{name}</span>
+                          {hasEntries ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontSize: 14, fontWeight: 600, color: dayNet < 0 ? "#ff6b6b" : "#6bffb8" }}>
+                                {dayNet > 0 ? "+" : ""}{fmt(dayNet)}
+                              </span>
+                              <span style={{ color: "#555", fontSize: 18, padding: "2px 4px", lineHeight: 1,
+                                display: "inline-block",
+                                transform: isDayOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s ease" }}>›</span>
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: 13, color: "#222" }}>—</span>
+                          )}
+                        </div>
+                        {isDayOpen && (
+                          <div style={{ background: "#111" }}>
+                            {[...dayItems].sort((a, b) => entryDate(b) - entryDate(a)).map((e, i) => (
+                              <EntryRow key={e.id} entry={e} onDelete={onDelete} showBorder={i > 0} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -523,6 +581,8 @@ export default function App() {
             − Subtract
           </button>
         </div>
+
+        {!loading && <WeeklyLog entries={entries} now={now} onDelete={deleteEntry} />}
 
       </div>
     </div>
