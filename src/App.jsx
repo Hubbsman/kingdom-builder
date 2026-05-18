@@ -1143,25 +1143,6 @@ function BillsTab({ now }) {
     setLoading(false);
   };
 
-  useEffect(() => {
-    if (!loading && subs.length > 0) runAutoDeductions(subs);
-  }, [loading]);
-
-  const runAutoDeductions = async list => {
-    const todayNum = now.getDate(), todayStr = now.toLocaleDateString("en-CA");
-    const due = list.filter(s => s.day_of_month === todayNum);
-    if (!due.length) return;
-    const { data: te } = await supabase.from("money_entries").select("*")
-      .gte("ts", `${todayStr}T00:00:00`).lte("ts", `${todayStr}T23:59:59`);
-    for (const sub of due) {
-      const already = (te || []).some(e => e.note === sub.name && Number(e.change) === -Math.abs(Number(sub.amount)));
-      if (!already) await supabase.from("money_entries").insert({
-        change: -Math.abs(Number(sub.amount)), note: sub.name,
-        ts: new Date().toISOString(), created_at: new Date().toISOString(),
-      });
-    }
-  };
-
   const addSub = async () => {
     const name = subName.trim(), amount = parseFloat(subAmt), day = parseInt(subDay, 10);
     if (!name || isNaN(amount) || amount <= 0 || isNaN(day) || day < 1 || day > 31) return;
@@ -1734,7 +1715,7 @@ export default function App() {
     }
   }, [tabVisible, pendingTab]);
 
-  useEffect(() => { fetchEntries(); }, []);
+  useEffect(() => { fetchEntries().then(runSubscriptionDeductions); }, []);
 
   useEffect(() => {
     let timer;
@@ -1745,6 +1726,33 @@ export default function App() {
     schedule();
     return () => clearTimeout(timer);
   }, []);
+
+  const runSubscriptionDeductions = async () => {
+    const { data: subs } = await supabase.from("subscriptions").select("*");
+    if (!subs || !subs.length) return;
+    const today = new Date();
+    const todayNum = today.getDate();
+    const todayStr = today.toLocaleDateString("en-CA");
+    const due = subs.filter(s => s.day_of_month === todayNum);
+    if (!due.length) return;
+    const { data: todayEntries } = await supabase.from("money_entries").select("*")
+      .gte("ts", `${todayStr}T00:00:00`).lte("ts", `${todayStr}T23:59:59`);
+    const midnight = new Date(`${todayStr}T00:00:00`).toISOString();
+    for (const sub of due) {
+      const note = `Subscription for ${sub.name}`;
+      const already = (todayEntries || []).some(e => e.note === note);
+      if (!already) {
+        const { data } = await supabase.from("money_entries")
+          .insert({ change: -Math.abs(Number(sub.amount)), note, ts: midnight, created_at: midnight })
+          .select().single();
+        if (data) {
+          setEntries(prev => [data, ...prev]);
+          const ws = weekSundayOf(new Date());
+          if (new Date(data.ts) >= ws) setBalance(prev => prev + Number(data.change));
+        }
+      }
+    }
+  };
 
   const fetchEntries = async () => {
     setLoading(true); setError(null);
