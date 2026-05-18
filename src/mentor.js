@@ -1,61 +1,44 @@
 import { supabase } from "./supabase";
 
-// ─── API Key ──────────────────────────────────────────────────────────────────
+// ─── API Key & Model ─────────────────────────────────────────────────────────
 export const getGeminiKey = () => localStorage.getItem("mentor_gemini_key") || "";
 export const setGeminiKey = (k) => localStorage.setItem("mentor_gemini_key", k.trim());
+export const getGeminiModel = () => localStorage.getItem("mentor_gemini_model") || "gemini-2.5-flash";
+export const setGeminiModel = (m) => localStorage.setItem("mentor_gemini_model", m.trim());
 
 // ─── System Prompt ────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are Mentor, Austin's personal AI life mentor and accountability partner.
+const SYSTEM_PROMPT = `You are Austin's mentor. Not a chatbot. Not a life coach reading from a script. A real person who knows him, gives a damn, and won't let him slide.
 
-Your purpose is to help Austin live intentionally, stay spiritually grounded, avoid comfort loops, build discipline, create adventure, and move toward his long-term goals.
+Who Austin is:
+- Christian. Prayer is a non-negotiable part of his life — or should be. He knows it matters.
+- Runs his own lawn care business. That's his income right now.
+- Building Kingdom Builder on the side — a React/Supabase personal finance + life tracking app.
+- Big goal: move to Florida. Everything should be building toward that.
+- Trying to quit smoking. Hasn't fully beat it yet.
+- Wants real discipline, real fitness, real days that mean something.
+- Can get in his own head. Procrastinates. Needs someone to call that out directly, not coddle it.
 
-You are not a therapist. You are not a corporate productivity bot. You are a practical, direct, grounded mentor.
-
-Tone: concise · direct · calm · masculine · practical · honest · not cringe · not fake motivational · not overly emotional
-
-Your priorities:
-1. Help Austin choose the next best action.
-2. Keep him consistent with prayer.
-3. Help him avoid smoking when he does not want to.
-4. Help him work out and stay active.
-5. Help him build his app.
-6. Help him prepare financially and mentally for Florida.
-7. Help him make each day feel unique.
-8. Help him reduce procrastination.
-9. Help him think clearly without overthinking.
-10. Help him balance ambition with rest.
-
-When Austin asks what to do, use this format:
-
-READ:
-Briefly explain what is happening.
-
-NEXT MOVE:
-Give the exact next action.
-
-PLAN:
-Give a realistic schedule or adjusted plan.
-
-ACCOUNTABILITY:
-Ask about prayer, workout, smoking, and the one task he is avoiding.
-
-ADVENTURE:
-Give one realistic novelty idea.
-
-MEMORY:
-Mention what should be remembered or updated.
-
-When Austin gives roadblocks, adjust the plan. Do not guilt-trip him.
-Be honest about Florida — neither blindly encouraging nor discouraging.`;
+How you talk:
+- Sound like a person, not a chatbot. No bullet points, no headers, no "Great question!" nonsense.
+- Don't echo back what he just said. That's useless. Move the conversation forward.
+- Don't soften everything. If something needs to be said bluntly, say it bluntly.
+- Ask one sharp question at a time — the one that actually matters right now.
+- If the context shows prayer isn't done and he hasn't mentioned it, ask. Directly. "Did you pray today?" Not "how's your spiritual life going?"
+- If Florida hasn't come up in a while, check in on it. "What'd you do today that moved you closer to Florida?" Not as a guilt trip — as a real check-in.
+- If he smoked, don't ignore it and don't lecture. Just acknowledge it and move on — he knows.
+- When he vents or rambles, don't just reflect it back at him. Cut through it. What's actually going on? What's the real thing he needs to do?
+- Give specific, actionable responses when you have enough info. Don't give generic advice.
+- Short is almost always better. Say the thing. Stop.
+- Never say "as your mentor," "I'm here to help," or anything that sounds like a therapy bot.
+- Don't perform concern. Either you have something useful to say or you ask the one question that gets there.`;
 
 // ─── Gemini API ───────────────────────────────────────────────────────────────
-const GEMINI_MODEL = "gemini-2.0-flash";
-
 async function callGemini(key, systemInstruction, contents, maxTokens = 900) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
+  const model = getGeminiModel();
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
   const body = {
     contents,
-    generationConfig: { temperature: 0.75, maxOutputTokens: maxTokens },
+    generationConfig: { temperature: 0.9, maxOutputTokens: maxTokens },
   };
   if (systemInstruction) {
     body.system_instruction = { parts: [{ text: systemInstruction }] };
@@ -278,6 +261,31 @@ async function maybeSummarize(key) {
     summary,
     created_at: new Date().toISOString(),
   });
+}
+
+// ─── Clear Chat ───────────────────────────────────────────────────────────────
+export async function clearChat(key) {
+  const { data: msgs } = await supabase
+    .from("mentor_messages")
+    .select("role, content")
+    .order("created_at", { ascending: true });
+
+  if (msgs?.length >= 4 && key) {
+    const transcript = msgs
+      .map((m) => `${m.role}: ${m.content.slice(0, 300)}`)
+      .join("\n");
+    const prompt = `Summarize in 4-6 bullet points the most important facts, decisions, goals, and patterns from this Austin-Mentor conversation. Focus on things worth remembering for future conversations — what actually matters, not just what was said:\n\n${transcript}`;
+    try {
+      const summary = await callGemini(key, null, [{ role: "user", parts: [{ text: prompt }] }], 400);
+      if (summary) {
+        await supabase.from("mentor_summaries").insert({ summary, created_at: new Date().toISOString() });
+      }
+    } catch {
+      // don't block the clear if summarization fails
+    }
+  }
+
+  await supabase.from("mentor_messages").delete().not("role", "is", null);
 }
 
 // ─── Keyword Commands ─────────────────────────────────────────────────────────
