@@ -380,7 +380,7 @@ export default function App() {
   const [showReset, setShowReset] = useState(false);
   const [error, setError] = useState(null);
   const [now, setNow] = useState(new Date());
-  const [selectedDay, setSelectedDay] = useState(null);
+  const [selectedDay, setSelectedDay] = useState(() => new Date());
 
   useEffect(() => { fetchEntries(); }, []);
 
@@ -392,7 +392,7 @@ export default function App() {
       midnight.setHours(24, 0, 0, 0);
       timer = setTimeout(() => {
         setNow(new Date());
-        setSelectedDay(null);
+        setSelectedDay(new Date());
         schedule();
       }, midnight - n);
     };
@@ -519,16 +519,17 @@ export default function App() {
               </div>
             )}
           </div>
-          {!loading && selectedDay && (() => {
-            const ds = new Date(selectedDay); ds.setHours(0, 0, 0, 0);
-            const de = new Date(selectedDay); de.setHours(23, 59, 59, 999);
+          {!loading && (() => {
+            const day = selectedDay || now;
+            const ds = new Date(day); ds.setHours(0, 0, 0, 0);
+            const de = new Date(day); de.setHours(23, 59, 59, 999);
             const net = entries
               .filter(e => { const t = entryDate(e); return t >= ds && t <= de; })
               .reduce((s, e) => s + Number(e.change), 0);
             return (
               <div style={{ textAlign: "right", paddingBottom: 6 }}>
                 <div style={{ fontSize: 10, color: "#444", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 2 }}>
-                  {selectedDay.toLocaleDateString("en-US", { weekday: "long" })}
+                  {day.toLocaleDateString("en-US", { weekday: "long" })}
                 </div>
                 <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
                   {net > 0 ? "+" : ""}{fmt(net)}
@@ -545,12 +546,6 @@ export default function App() {
             selectedDay={selectedDay}
             onSelectDay={setSelectedDay}
           />
-        )}
-
-        {selectedDay && (
-          <div style={{ fontSize: 13, color: "#e2e2e2", letterSpacing: "0.01em" }}>
-            {selectedDay.toLocaleDateString("en-US", { weekday: "long" })}
-          </div>
         )}
 
         <input
@@ -873,6 +868,7 @@ const styles = {
     left: 0,
     right: 0,
     height: 56,
+    paddingBottom: "env(safe-area-inset-bottom, 6px)",
     background: "#0a0a0a",
     borderTop: "1px solid #1a1a1a",
     display: "flex",
