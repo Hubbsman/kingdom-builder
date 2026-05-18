@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
-import { THEMES, THEME_ORDER, ThemeContext, useTheme } from "./themes";
+import { THEMES, ThemeContext, useTheme } from "./themes";
 // MENTOR_HIDDEN: import MentorChat from "./MentorChat";
 
 const fmt = (n) =>
@@ -1195,78 +1195,6 @@ function PinLock({ onUnlock }) {
   );
 }
 
-// ─── ThemeSelector ────────────────────────────────────────────────────────────
-function ThemeSelector({ onSelect, onClose }) {
-  const t = useTheme();
-  const items = THEME_ORDER.map(id => THEMES[id]);
-
-  return (
-    <div onPointerDown={e => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: "fixed", inset: 0, background: t.modalBg, zIndex: 600,
-        display: "flex", alignItems: "flex-end", justifyContent: "center",
-        backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>
-      <div className="kb-slide-up"
-        style={{ width: "100%", maxWidth: 480, background: t.surface,
-          borderRadius: `${t.cardRadius*1.3}px ${t.cardRadius*1.3}px 0 0`,
-          padding: "24px 20px 48px",
-          border: `1px solid ${t.border}`, borderBottom: "none",
-          boxShadow: t.shadow2 }}>
-
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <span style={{ fontSize: 11, color: t.textMuted, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 600 }}>
-            Appearance
-          </span>
-          <button onPointerDown={onClose}
-            style={{ background: "none", border: "none", color: t.textFaint, fontSize: 22, cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>×</button>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          {items.map(th => {
-            const isActive = th.id === t.id;
-            return (
-              <div key={th.id} className="kb-btn"
-                onPointerDown={() => { onSelect(th.id); onClose(); }}
-                style={{ background: th.bg, borderRadius: th.cardRadius, padding: "14px",
-                  cursor: "pointer", position: "relative", overflow: "hidden",
-                  border: isActive ? `2px solid ${th.accent}` : `1px solid ${th.border2}`,
-                  boxShadow: isActive ? `0 0 0 3px ${th.accentSoft}, ${th.shadow}` : th.shadow,
-                }}>
-
-                <div style={{ fontSize: 12, fontWeight: 600, color: th.text, marginBottom: 10,
-                  letterSpacing: "0.01em", fontFamily: "'Inter','Segoe UI',sans-serif" }}>
-                  {th.name}
-                </div>
-
-                <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
-                  {[th.accent, th.positive, th.negative, th.surface2].map((col,i) => (
-                    <div key={i} style={{ width: 12, height: 12, borderRadius: "50%", background: col,
-                      border: `1px solid ${th.border}` }} />
-                  ))}
-                </div>
-
-                <div style={{ background: th.surface, borderRadius: th.selRadius, padding: "6px 10px",
-                  border: `1px solid ${th.border}` }}>
-                  <div style={{ fontSize: 8, color: th.textFaint, letterSpacing: "0.1em", fontFamily: "'Inter','Segoe UI',sans-serif" }}>BALANCE</div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: th.positive, letterSpacing: "-0.02em",
-                    fontFamily: "'Inter','Segoe UI',sans-serif" }}>$1,234</div>
-                </div>
-
-                {isActive && (
-                  <div style={{ position: "absolute", top: 10, right: 10,
-                    width: 18, height: 18, borderRadius: "50%",
-                    background: th.accent, display: "flex", alignItems: "center", justifyContent: "center",
-                    boxShadow: `0 0 6px ${th.accentSoft}` }}>
-                    <span style={{ color: th.accentText, fontSize: 10, fontWeight: 700 }}>✓</span>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
@@ -1286,13 +1214,12 @@ export default function App() {
   const [now, setNow] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(() => new Date());
   const [editingEntry, setEditingEntry] = useState(null);
-  const [showThemePicker, setShowThemePicker] = useState(false);
-
-  const selectTheme = id => {
+  const toggleTheme = () => {
+    const next = themeId === "nightInk" ? "zenWhite" : "nightInk";
     document.documentElement.classList.add("kb-theme-transition");
     setTimeout(() => document.documentElement.classList.remove("kb-theme-transition"), 500);
-    setThemeId(id);
-    localStorage.setItem("kb_theme", id);
+    setThemeId(next);
+    localStorage.setItem("kb_theme", next);
   };
 
   useEffect(() => { fetchEntries(); }, []);
@@ -1385,7 +1312,6 @@ export default function App() {
     <ThemeContext.Provider value={theme}>
       <style>{GLOBAL_CSS}</style>
 
-      {showThemePicker && <ThemeSelector onSelect={selectTheme} onClose={() => setShowThemePicker(false)} />}
       {editingEntry && (
         <EditEntryModal entry={editingEntry} onSave={updateEntry} onDelete={deleteEntry}
           onClose={() => setEditingEntry(null)} />
@@ -1394,13 +1320,12 @@ export default function App() {
       {/* ── Balance Tab ── */}
       {activeTab === "balance" && (
         <BalanceTab
-          theme={theme}
           entries={entries} balance={balance} loading={loading} saving={saving}
           error={error} now={now} selectedDay={selectedDay} setSelectedDay={setSelectedDay}
           amount={amount} setAmount={setAmount} note={note} setNote={setNote}
           apply={apply} reset={reset} showReset={showReset} setShowReset={setShowReset}
           deleteEntry={deleteEntry} setEditingEntry={setEditingEntry}
-          onOpenThemePicker={() => setShowThemePicker(true)}
+          themeId={themeId} onToggleTheme={toggleTheme}
           handleKey={handleKey}
         />
       )}
@@ -1409,7 +1334,7 @@ export default function App() {
       {activeTab === "countdown" && <CountdownView />}
 
       {/* ── Tab Bar ── */}
-      <TabBar theme={theme} activeTab={activeTab} setActiveTab={setActiveTab} onOpenThemePicker={() => setShowThemePicker(true)} />
+      <TabBar activeTab={activeTab} setActiveTab={setActiveTab} />
     </ThemeContext.Provider>
   );
 }
@@ -1417,7 +1342,7 @@ export default function App() {
 // ─── BalanceTab (extracted for clarity) ──────────────────────────────────────
 function BalanceTab({ entries, balance, loading, saving, error, now, selectedDay, setSelectedDay,
   amount, setAmount, note, setNote, apply, reset, showReset, setShowReset,
-  deleteEntry, setEditingEntry, handleKey }) {
+  deleteEntry, setEditingEntry, themeId, onToggleTheme, handleKey }) {
   const t = useTheme();
   const s = useStyles();
 
@@ -1433,7 +1358,7 @@ function BalanceTab({ entries, balance, loading, saving, error, now, selectedDay
       <div style={s.card}>
         {error && <div style={s.errorBox}>{error}</div>}
 
-        {/* Date + day net */}
+        {/* Date + day net + theme toggle */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div style={{ fontSize: 13, color: t.textMuted, fontWeight: 500, letterSpacing: "0.01em" }}>
             {now.toLocaleDateString("en-US",{weekday:"long"})}
@@ -1441,17 +1366,26 @@ function BalanceTab({ entries, balance, loading, saving, error, now, selectedDay
               {" · "}{now.toLocaleDateString("en-US",{month:"short",day:"numeric"})}
             </span>
           </div>
-          {!loading && (
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 10, color: t.textFaint, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 2 }}>
-                {displayDay.toLocaleDateString("en-US",{weekday:"long"})}
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+            {!loading && (
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 10, color: t.textFaint, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 2 }}>
+                  {displayDay.toLocaleDateString("en-US",{weekday:"long"})}
+                </div>
+                <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-0.02em",
+                  color: dayNet < 0 ? t.negative : t.positive }}>
+                  {dayNet > 0 ? "+" : ""}{fmt(dayNet)}
+                </div>
               </div>
-              <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-0.02em",
-                color: dayNet < 0 ? t.negative : t.positive }}>
-                {dayNet > 0 ? "+" : ""}{fmt(dayNet)}
-              </div>
-            </div>
-          )}
+            )}
+            <button className="kb-btn" onPointerDown={onToggleTheme}
+              title={themeId === "nightInk" ? "Switch to Zen White" : "Switch to Night Ink"}
+              style={{ background: "none", border: `1px solid ${t.border2}`, borderRadius: 20,
+                color: t.textFaint, fontSize: 14, cursor: "pointer", padding: "4px 8px",
+                lineHeight: 1, marginTop: 2, fontFamily: "sans-serif" }}>
+              {themeId === "nightInk" ? "◑" : "◐"}
+            </button>
+          </div>
         </div>
 
         {/* Balance */}
@@ -1522,7 +1456,7 @@ function BalanceTab({ entries, balance, loading, saving, error, now, selectedDay
 }
 
 // ─── TabBar ───────────────────────────────────────────────────────────────────
-function TabBar({ activeTab, setActiveTab, onOpenThemePicker }) {
+function TabBar({ activeTab, setActiveTab }) {
   const t = useTheme();
   const s = useStyles();
   const tabs = [
@@ -1542,15 +1476,6 @@ function TabBar({ activeTab, setActiveTab, onOpenThemePicker }) {
           </span>
         </button>
       ))}
-      {/* Theme picker button */}
-      <button className="kb-btn"
-        style={{ ...s.tabBtn, color: t.tabInactive, flex: "none", width: 52 }}
-        onClick={onOpenThemePicker}>
-        <span style={{ fontSize: 16, lineHeight: 1 }}>◐</span>
-        <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase" }}>
-          Theme
-        </span>
-      </button>
     </div>
   );
 }
