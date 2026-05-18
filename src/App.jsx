@@ -6,6 +6,23 @@ import { WM as C } from "./themes";
 const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 const entryDate = e => { const t = new Date(e.ts); return isNaN(t) ? new Date(e.created_at) : t; };
 
+// ─── Category definitions ──────────────────────────────────────────────────────
+const SUB_CATS = [
+  { id: "subscription", label: "Subscription", color: C.accent,    glow: C.accentGlow  },
+  { id: "necessity",    label: "Necessity",    color: C.teal,      glow: C.tealGlow    },
+  { id: "want",         label: "Want / Misc",  color: C.amber,     glow: C.amberGlow   },
+];
+const ENTRY_CATS = [
+  { id: "income",        label: "Income",        color: C.teal,      glow: C.tealGlow    },
+  { id: "asset",         label: "Asset",         color: C.violet,    glow: C.violetGlow  },
+  { id: "food",          label: "Food",          color: C.amber,     glow: C.amberGlow   },
+  { id: "gas",           label: "Gas",           color: C.rose,      glow: C.roseGlow    },
+  { id: "bills",         label: "Bills",         color: C.accent,    glow: C.accentGlow  },
+  { id: "entertainment", label: "Entertainment", color: C.violet,    glow: C.violetGlow  },
+  { id: "misc",          label: "Misc",          color: C.textMuted, glow: "none"        },
+];
+const catById = (list, id) => list.find(c => c.id === id) || null;
+
 function smoothPath(pts) {
   if (!pts.length) return "";
   if (pts.length === 1) return `M${pts[0].x},${pts[0].y}`;
@@ -494,15 +511,69 @@ function WaveChart({ entries, now, selectedDay, onSelectDay }) {
   );
 }
 
+// ─── Category Picker ──────────────────────────────────────────────────────────
+function CategoryPicker({ sign, onPick }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 500,
+      background: "rgba(0,0,0,0.72)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
+      display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div className="wm-slide"
+        style={{ width: "100%", maxWidth: 480,
+          background: "linear-gradient(135deg,rgba(11,18,36,0.97) 0%,rgba(18,28,58,0.95) 100%)",
+          borderRadius: "26px 26px 0 0", padding: "20px 20px 44px",
+          border: `1px solid ${C.border2}`, borderBottom: "none",
+          boxShadow: "0 -8px 60px rgba(0,0,0,0.65), inset 0 1px 0 rgba(255,255,255,0.06)",
+          fontFamily: "'Inter','Segoe UI',sans-serif", position: "relative" }}>
+        <div style={{ position: "absolute", top: 0, left: "30%", right: "30%", height: 1,
+          background: `linear-gradient(90deg,transparent,${C.border2},transparent)` }} />
+        <div style={{ fontSize: 11, color: C.textMuted, letterSpacing: "0.14em",
+          textTransform: "uppercase", fontWeight: 500, marginBottom: 16, textAlign: "center" }}>
+          {sign > 0 ? "What is this income?" : "What is this expense?"}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+          {ENTRY_CATS.map(cat => (
+            <button key={cat.id} className="wm-btn"
+              onClick={() => onPick(cat.id)}
+              style={{ display: "flex", alignItems: "center", gap: 8,
+                background: `${cat.color}12`, border: `1px solid ${cat.color}30`,
+                borderRadius: 14, padding: "12px 14px", cursor: "pointer",
+                fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                background: cat.color, boxShadow: `0 0 8px ${cat.glow}` }} />
+              <span style={{ fontSize: 13, fontWeight: 500, color: cat.color }}>{cat.label}</span>
+            </button>
+          ))}
+        </div>
+        <button className="wm-btn" onClick={() => onPick(null)}
+          style={{ width: "100%", background: "none", border: `1px solid ${C.border}`,
+            borderRadius: 14, padding: "11px 0", color: C.textFaint, fontSize: 13,
+            fontFamily: "'Inter','Segoe UI',sans-serif", cursor: "pointer" }}>
+          Skip
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Home Tab ─────────────────────────────────────────────────────────────────
 function HomeTab({ entries, balance, loading, saving, error, now, selectedDay, setSelectedDay,
   amount, setAmount, note, setNote, apply, deleteEntry, setEditingEntry,
   reset, showReset, setShowReset, handleKey }) {
 
   const animBalance = useAnimatedValue(balance);
-  const [balFlash, setBalFlash] = useState(null); // "pos" | "neg" | null
+  const [balFlash, setBalFlash] = useState(null);
+  const [pickerSign, setPickerSign] = useState(null);
   const addRipple = useRipple("rgba(88,245,195,0.3)");
   const subRipple = useRipple("rgba(255,107,138,0.3)");
+
+  const handleApplyWithCategory = (sign, e) => {
+    if (sign > 0) addRipple.trigger(e); else subRipple.trigger(e);
+    setPickerSign(sign);
+  };
+  const handleCategoryPick = cat => {
+    apply(pickerSign, cat);
+    setPickerSign(null);
+  };
 
   const prevBalance = useRef(balance);
   useEffect(() => {
@@ -626,9 +697,8 @@ function HomeTab({ entries, balance, loading, saving, error, now, selectedDay, s
           value={note} maxLength={80} disabled={saving}
           onChange={e => setNote(e.target.value)} onKeyDown={handleKey} />
         <div style={{ display: "flex", gap: 10 }}>
-          {/* Add button with ripple */}
           <button className="wm-btn"
-            onClick={e => { addRipple.trigger(e); apply(1); }}
+            onClick={e => handleApplyWithCategory(1, e)}
             disabled={saving}
             style={{ flex: 1, border: `1px solid rgba(88,245,195,0.24)`, borderRadius: C.btnRadius,
               background: "linear-gradient(135deg,rgba(88,245,195,0.13),rgba(88,245,195,0.06))",
@@ -639,9 +709,8 @@ function HomeTab({ entries, balance, loading, saving, error, now, selectedDay, s
             {addRipple.els}
             + Add
           </button>
-          {/* Subtract button with ripple */}
           <button className="wm-btn"
-            onClick={e => { subRipple.trigger(e); apply(-1); }}
+            onClick={e => handleApplyWithCategory(-1, e)}
             disabled={saving}
             style={{ flex: 1, border: `1px solid rgba(255,107,138,0.24)`, borderRadius: C.btnRadius,
               background: "linear-gradient(135deg,rgba(255,107,138,0.13),rgba(255,107,138,0.06))",
@@ -663,20 +732,29 @@ function HomeTab({ entries, balance, loading, saving, error, now, selectedDay, s
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {recent.map((e, i) => {
               const neg = Number(e.change) < 0;
+              const cat = catById(ENTRY_CATS, e.category);
+              const edgeColor = cat ? cat.color : neg ? C.rose : C.teal;
+              const edgeGlow = cat ? cat.glow : neg ? C.roseGlow : C.tealGlow;
               return (
                 <div key={e.id} className="wm-btn wm-lift wm-node" onClick={() => setEditingEntry(e)}
                   style={{ ...glass, padding: "10px 14px", cursor: "pointer",
                     display: "flex", alignItems: "center", gap: 10,
                     animationDelay: `${i * 0.07}s`,
                     position: "relative", overflow: "hidden" }}>
-                  {/* Entry edge glow */}
                   <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 2,
-                    background: neg ? C.rose : C.teal,
-                    boxShadow: `0 0 8px ${neg ? C.roseGlow : C.tealGlow}`,
+                    background: edgeColor,
+                    boxShadow: `0 0 8px ${edgeGlow}`,
                     borderRadius: "2px 0 0 2px" }} />
-                  <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
-                    background: neg ? C.rose : C.teal,
-                    boxShadow: `0 0 10px ${neg ? C.roseGlow : C.tealGlow}`, marginLeft: 6 }} />
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, marginLeft: 6 }}>
+                    <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+                      background: edgeColor, boxShadow: `0 0 10px ${edgeGlow}` }} />
+                    {cat && (
+                      <div style={{ fontSize: 8, color: edgeColor, fontWeight: 600,
+                        letterSpacing: "0.04em", textTransform: "uppercase", lineHeight: 1 }}>
+                        {cat.label.split(" ")[0]}
+                      </div>
+                    )}
+                  </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: neg ? C.rose : C.teal }}>
                       {neg ? "" : "+"}{fmt(Number(e.change))}
@@ -714,6 +792,10 @@ function HomeTab({ entries, balance, loading, saving, error, now, selectedDay, s
           </div>
         )}
       </div>
+
+      {pickerSign !== null && (
+        <CategoryPicker sign={pickerSign} onPick={handleCategoryPick} />
+      )}
     </div>
   );
 }
@@ -1132,6 +1214,7 @@ function BillsTab({ now }) {
   const [subName, setSubName] = useState("");
   const [subAmt, setSubAmt] = useState("");
   const [subDay, setSubDay] = useState("");
+  const [subCat, setSubCat] = useState("subscription");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { fetchSubs(); }, []);
@@ -1147,9 +1230,10 @@ function BillsTab({ now }) {
     const name = subName.trim(), amount = parseFloat(subAmt), day = parseInt(subDay, 10);
     if (!name || isNaN(amount) || amount <= 0 || isNaN(day) || day < 1 || day > 31) return;
     setSaving(true);
-    const { data } = await supabase.from("subscriptions").insert({ name, amount, day_of_month: day }).select().single();
+    const { data } = await supabase.from("subscriptions")
+      .insert({ name, amount, day_of_month: day, category: subCat }).select().single();
     if (data) setSubs(prev => [...prev, data].sort((a,b) => a.day_of_month - b.day_of_month));
-    setSubName(""); setSubAmt(""); setSubDay(""); setSaving(false);
+    setSubName(""); setSubAmt(""); setSubDay(""); setSubCat("subscription"); setSaving(false);
   };
 
   const deleteSub = async id => {
@@ -1201,16 +1285,17 @@ function BillsTab({ now }) {
           {cells.map((d, i) => {
             if (d === null) return <div key={`e${i}`} />;
             const isPast = d < todayDate, isToday = d === todayDate, isSel = selDay === d;
-            const hasBills = (byDay[d] || []).length > 0;
-            const dotCount = Math.min((byDay[d] || []).length, 3);
-            const dayUrgent = d === todayDate && hasBills;
+            const daySubs = byDay[d] || [];
+            const hasBills = daySubs.length > 0;
+            const dayUrgent = isToday && hasBills;
+            const dots = daySubs.slice(0, 3).map(s => catById(SUB_CATS, s.category) || SUB_CATS[0]);
             return (
               <div key={d} className={hasBills ? "wm-btn" : undefined}
                 onClick={() => hasBills && setSelDay(isSel ? null : d)}
                 style={{ position: "relative", display: "flex", flexDirection: "column",
                   alignItems: "center", justifyContent: "center", height: 40, borderRadius: 12,
                   cursor: hasBills ? "pointer" : "default",
-                  background: isSel ? C.accentSoft : dayUrgent ? "rgba(255,154,74,0.08)" : "transparent",
+                  background: isSel ? C.accentSoft : dayUrgent ? "rgba(91,124,255,0.08)" : "transparent",
                   border: isToday ? `1px solid ${C.accent}` : isSel ? `1px solid ${C.border2}` : "1px solid transparent",
                   boxShadow: isToday ? `0 0 12px ${C.accentGlow}` : isSel ? `0 0 10px ${C.accentGlow}` : "none",
                   transition: "all 0.18s ease" }}>
@@ -1219,17 +1304,28 @@ function BillsTab({ now }) {
                   marginBottom: hasBills ? 2 : 0 }}>{d}</span>
                 {hasBills && (
                   <div style={{ display: "flex", gap: 2 }}>
-                    {Array.from({ length: dotCount }).map((_, di) => (
+                    {dots.map((cat, di) => (
                       <div key={di} style={{ width: 3, height: 3, borderRadius: "50%",
-                        background: dayUrgent ? C.amber : C.amber,
-                        boxShadow: `0 0 4px ${C.amberGlow}`,
-                        animation: dayUrgent ? "glowPulse 1.8s ease-in-out infinite" : "none" }} />
+                        background: cat.color,
+                        boxShadow: `0 0 4px ${cat.glow}` }} />
                     ))}
                   </div>
                 )}
               </div>
             );
           })}
+        </div>
+
+        {/* Category legend */}
+        <div style={{ display: "flex", gap: 10, justifyContent: "center", marginTop: 10,
+          paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
+          {SUB_CATS.map(cat => (
+            <div key={cat.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%",
+                background: cat.color, boxShadow: `0 0 6px ${cat.glow}` }} />
+              <span style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.06em" }}>{cat.label}</span>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -1275,10 +1371,27 @@ function BillsTab({ now }) {
           <input style={{ ...inp, flex: 1 }} type="number" inputMode="numeric"
             placeholder="Day" value={subDay} min="1" max="31" disabled={saving} onChange={e => setSubDay(e.target.value)} />
         </div>
+        {/* Category selector */}
+        <div style={{ display: "flex", gap: 6 }}>
+          {SUB_CATS.map(cat => (
+            <button key={cat.id} className="wm-btn"
+              onClick={() => setSubCat(cat.id)}
+              style={{ flex: 1, background: subCat === cat.id ? `${cat.color}20` : "transparent",
+                border: `1px solid ${subCat === cat.id ? cat.color : C.border}`,
+                borderRadius: 10, padding: "7px 4px", cursor: "pointer",
+                fontFamily: "'Inter','Segoe UI',sans-serif",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%",
+                background: cat.color, boxShadow: subCat === cat.id ? `0 0 8px ${cat.glow}` : "none" }} />
+              <span style={{ fontSize: 10, color: subCat === cat.id ? cat.color : C.textFaint,
+                fontWeight: subCat === cat.id ? 600 : 400 }}>{cat.label}</span>
+            </button>
+          ))}
+        </div>
         <button className="wm-btn" onClick={addSub} disabled={saving}
           style={{ border: `1px solid ${C.border2}`, borderRadius: C.btnRadius,
-            background: `linear-gradient(135deg,${C.amberSoft},rgba(255,154,74,0.06))`,
-            color: C.amber, fontSize: 14, fontWeight: 600, padding: "10px 0",
+            background: `linear-gradient(135deg,${C.accentSoft},rgba(91,124,255,0.06))`,
+            color: C.accent, fontSize: 14, fontWeight: 600, padding: "10px 0",
             opacity: saving ? 0.4 : 1, fontFamily: "'Inter','Segoe UI',sans-serif" }}>
           + Add Subscription
         </button>
@@ -1291,17 +1404,24 @@ function BillsTab({ now }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
             {subs.map(sub => {
               const isUpcoming = sub.day_of_month >= todayDate;
+              const cat = catById(SUB_CATS, sub.category) || SUB_CATS[0];
               return (
                 <div key={sub.id} className="wm-lift"
                   style={{ ...glass, borderRadius: 14, padding: "10px 14px",
                     display: "flex", alignItems: "center", justifyContent: "space-between",
-                    border: `1px solid ${isUpcoming ? "rgba(255,154,74,0.14)" : C.border}` }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ fontSize: 11, color: C.amber, fontWeight: 700, minWidth: 22, textAlign: "right",
-                      textShadow: isUpcoming ? `0 0 10px ${C.amberGlow}` : "none" }}>
+                    border: `1px solid ${isUpcoming ? `${cat.color}28` : C.border}`,
+                    position: "relative", overflow: "hidden" }}>
+                  <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3,
+                    background: cat.color, boxShadow: `0 0 8px ${cat.glow}`, borderRadius: "3px 0 0 3px" }} />
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: 8 }}>
+                    <span style={{ fontSize: 11, color: cat.color, fontWeight: 700, minWidth: 22, textAlign: "right",
+                      textShadow: isUpcoming ? `0 0 10px ${cat.glow}` : "none" }}>
                       {sub.day_of_month}
                     </span>
-                    <span style={{ fontSize: 14, color: C.text }}>{sub.name}</span>
+                    <div>
+                      <span style={{ fontSize: 14, color: C.text }}>{sub.name}</span>
+                      <div style={{ fontSize: 10, color: cat.color, marginTop: 1 }}>{cat.label}</div>
+                    </div>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: 14, fontWeight: 600, color: C.rose }}>-{fmt(sub.amount)}</span>
@@ -1717,11 +1837,18 @@ export default function App() {
 
   useEffect(() => { fetchEntries().then(runSubscriptionDeductions); }, []);
 
+  const runSubRef = useRef(null);
+  runSubRef.current = runSubscriptionDeductions;
+
   useEffect(() => {
     let timer;
     const schedule = () => {
       const n = new Date(), midnight = new Date(n); midnight.setHours(24,0,0,0);
-      timer = setTimeout(() => { setNow(new Date()); setSelectedDay(new Date()); schedule(); }, midnight - n);
+      timer = setTimeout(() => {
+        setNow(new Date()); setSelectedDay(new Date());
+        runSubRef.current?.();
+        schedule();
+      }, midnight - n);
     };
     schedule();
     return () => clearTimeout(timer);
@@ -1730,25 +1857,30 @@ export default function App() {
   const runSubscriptionDeductions = async () => {
     const { data: subs } = await supabase.from("subscriptions").select("*");
     if (!subs || !subs.length) return;
-    const today = new Date();
-    const todayNum = today.getDate();
-    const todayStr = today.toLocaleDateString("en-CA");
-    const due = subs.filter(s => s.day_of_month === todayNum);
-    if (!due.length) return;
-    const { data: todayEntries } = await supabase.from("money_entries").select("*")
-      .gte("ts", `${todayStr}T00:00:00`).lte("ts", `${todayStr}T23:59:59`);
-    const midnight = new Date(`${todayStr}T00:00:00`).toISOString();
-    for (const sub of due) {
-      const note = `Subscription for ${sub.name}`;
-      const already = (todayEntries || []).some(e => e.note === note);
-      if (!already) {
-        const { data } = await supabase.from("money_entries")
-          .insert({ change: -Math.abs(Number(sub.amount)), note, ts: midnight, created_at: midnight })
-          .select().single();
-        if (data) {
-          setEntries(prev => [data, ...prev]);
-          const ws = weekSundayOf(new Date());
-          if (new Date(data.ts) >= ws) setBalance(prev => prev + Number(data.change));
+    // Check the last 7 days so missed days get caught on next app open
+    const ws = weekSundayOf(new Date());
+    for (let daysBack = 6; daysBack >= 0; daysBack--) {
+      const d = new Date(); d.setDate(d.getDate() - daysBack); d.setHours(0,0,0,0);
+      const dayNum = d.getDate();
+      const dayStr = d.toLocaleDateString("en-CA");
+      const due = subs.filter(s => s.day_of_month === dayNum);
+      if (!due.length) continue;
+      const { data: dayEntries } = await supabase.from("money_entries").select("note,ts")
+        .gte("ts", `${dayStr}T00:00:00`).lte("ts", `${dayStr}T23:59:59`);
+      const midnight = new Date(`${dayStr}T00:00:00`).toISOString();
+      for (const sub of due) {
+        const note = `Subscription for ${sub.name}`;
+        const already = (dayEntries || []).some(e => e.note === note);
+        if (!already) {
+          const { data } = await supabase.from("money_entries")
+            .insert({ change: -Math.abs(Number(sub.amount)), note,
+              category: sub.category || "subscription",
+              ts: midnight, created_at: midnight })
+            .select().single();
+          if (data) {
+            setEntries(prev => [data, ...prev].sort((a,b) => new Date(b.created_at) - new Date(a.created_at)));
+            if (new Date(data.ts) >= ws) setBalance(prev => prev + Number(data.change));
+          }
         }
       }
     }
@@ -1766,19 +1898,20 @@ export default function App() {
     setLoading(false);
   };
 
-  const apply = async sign => {
+  const apply = async (sign, category = null) => {
     const val = parseFloat(amount);
     if (!val || isNaN(val) || val <= 0) return;
     setSaving(true); setError(null);
     const target = selectedDay || now;
     const opt = { id: crypto.randomUUID(), change: sign * val, note: note.trim() || null,
+      category: category || null,
       ts: target.toISOString(), created_at: target.toISOString() };
     setEntries(prev => [opt, ...prev]);
     const ws = weekSundayOf(new Date());
     if (new Date(opt.ts) >= ws) setBalance(prev => prev + opt.change);
     setAmount(""); setNote("");
     const { data, error: err } = await supabase.from("money_entries")
-      .insert({ change: opt.change, note: opt.note, ts: opt.ts, created_at: opt.created_at })
+      .insert({ change: opt.change, note: opt.note, category: opt.category, ts: opt.ts, created_at: opt.created_at })
       .select().single();
     if (err) setError("Not saved: " + err.message);
     else if (data) setEntries(prev => prev.map(e => e.id === opt.id ? data : e));
