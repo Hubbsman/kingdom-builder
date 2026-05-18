@@ -1,320 +1,303 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
-import { THEMES, ThemeContext, useTheme } from "./themes";
-// MENTOR_HIDDEN: import MentorChat from "./MentorChat";
+import { WM as C } from "./themes";
 
-const fmt = (n) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
-
-const entryDate = (e) => { const t = new Date(e.ts); return isNaN(t) ? new Date(e.created_at) : t; };
+// ─── Utilities ────────────────────────────────────────────────────────────────
+const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
+const entryDate = e => { const t = new Date(e.ts); return isNaN(t) ? new Date(e.created_at) : t; };
 
 function smoothPath(pts) {
-  if (pts.length === 0) return "";
+  if (!pts.length) return "";
   if (pts.length === 1) return `M${pts[0].x},${pts[0].y}`;
   let d = `M${pts[0].x},${pts[0].y}`;
   for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[i], p1 = pts[i + 1];
-    const cpx = (p1.x - p0.x) / 3;
-    d += ` C${p0.x + cpx},${p0.y} ${p1.x - cpx},${p1.y} ${p1.x},${p1.y}`;
+    const p0 = pts[i], p1 = pts[i + 1], cp = (p1.x - p0.x) / 3;
+    d += ` C${p0.x + cp},${p0.y} ${p1.x - cp},${p1.y} ${p1.x},${p1.y}`;
   }
   return d;
 }
 
+function sundayOf(d) {
+  const s = new Date(d); s.setDate(d.getDate() - d.getDay()); s.setHours(0, 0, 0, 0); return s;
+}
+
+function weekLabelStr(d) {
+  const s = sundayOf(d);
+  return `${s.toLocaleDateString("en-US", { month: "long" })} Week ${Math.floor((s.getDate() - 1) / 7) + 1}`;
+}
+
+function genWave(amp, period, W, H) {
+  const pts = [];
+  for (let x = 0; x <= W; x += period / 10) {
+    pts.push({ x, y: H / 2 + amp * Math.sin(2 * Math.PI * x / period) });
+  }
+  let d = `M${pts[0].x},${pts[0].y}`;
+  for (let i = 1; i < pts.length; i++) {
+    const p0 = pts[i - 1], p1 = pts[i], cp = (p1.x - p0.x) / 2.5;
+    d += ` C${p0.x + cp},${p0.y} ${p1.x - cp},${p1.y} ${p1.x},${p1.y}`;
+  }
+  d += ` L${W},${H} L0,${H} Z`;
+  return d;
+}
+
+// ─── CSS ──────────────────────────────────────────────────────────────────────
 const GLOBAL_CSS = `
-  @keyframes kb-shake {
+  @keyframes orb1 {
+    0%,100%{transform:translate(0,0) scale(1);}
+    33%{transform:translate(7%,6%) scale(1.08);}
+    66%{transform:translate(-4%,10%) scale(0.95);}
+  }
+  @keyframes orb2 {
+    0%,100%{transform:translate(0,0) scale(1);}
+    40%{transform:translate(-8%,-5%) scale(0.9);}
+    80%{transform:translate(11%,-8%) scale(1.1);}
+  }
+  @keyframes orb3 {
+    0%,100%{transform:translate(0,0) scale(1);}
+    50%{transform:translate(5%,-11%) scale(1.07);}
+  }
+  @keyframes waveFlow {
+    from{transform:translateX(0);}
+    to{transform:translateX(-50%);}
+  }
+  @keyframes waveFlowRev {
+    from{transform:translateX(-50%);}
+    to{transform:translateX(0);}
+  }
+  @keyframes floatUp {
+    0%,100%{transform:translateY(0);}
+    50%{transform:translateY(-5px);}
+  }
+  @keyframes glowPulse {
+    0%,100%{opacity:0.5;}
+    50%{opacity:1;}
+  }
+  @keyframes nodeIn {
+    from{opacity:0;transform:translateX(-18px);}
+    to{opacity:1;transform:translateX(0);}
+  }
+  @keyframes fadeUp {
+    from{opacity:0;transform:translateY(10px);}
+    to{opacity:1;transform:translateY(0);}
+  }
+  @keyframes slideUp {
+    from{opacity:0;transform:translateY(44px);}
+    to{opacity:1;transform:translateY(0);}
+  }
+  @keyframes shake {
     0%,100%{transform:translateX(0)}
     15%{transform:translateX(-8px)} 30%{transform:translateX(8px)}
     45%{transform:translateX(-6px)} 60%{transform:translateX(6px)}
     75%{transform:translateX(-3px)} 90%{transform:translateX(3px)}
   }
-  @keyframes kb-fade-in {
-    from{opacity:0;transform:translateY(6px)}
-    to{opacity:1;transform:translateY(0)}
-  }
-  @keyframes kb-slide-up {
-    from{opacity:0;transform:translateY(40px)}
-    to{opacity:1;transform:translateY(0)}
-  }
-  @keyframes kb-scale-in {
-    from{opacity:0;transform:scale(0.94)}
-    to{opacity:1;transform:scale(1)}
-  }
-  @keyframes kb-glow-pulse {
-    0%,100%{opacity:0.55} 50%{opacity:1}
+  @keyframes shimmer {
+    0%{transform:translateX(-120%) skewX(-12deg);}
+    100%{transform:translateX(220%) skewX(-12deg);}
   }
   * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
-  body { margin: 0; }
-  .kb-btn {
-    transition: transform 0.1s ease, opacity 0.12s ease, box-shadow 0.15s ease;
-    user-select: none; cursor: pointer;
-  }
-  .kb-btn:active { transform: scale(0.95) !important; }
-  .kb-fade-in { animation: kb-fade-in 0.22s ease both; }
-  .kb-slide-up { animation: kb-slide-up 0.3s cubic-bezier(0.34,1.1,0.64,1) both; }
-  .kb-scale-in { animation: kb-scale-in 0.18s ease both; }
-  .kb-theme-transition, .kb-theme-transition * {
-    transition: background-color 0.38s ease, color 0.38s ease,
-      border-color 0.38s ease, box-shadow 0.38s ease !important;
-  }
+  body { margin: 0; background: #050816; overscroll-behavior: none; }
   input { appearance: none; -webkit-appearance: none; }
   input[type=number]::-webkit-inner-spin-button,
   input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-  input[type=date]::-webkit-calendar-picker-indicator { filter: opacity(0.4); }
+  input[type=date]::-webkit-calendar-picker-indicator,
+  input[type=time]::-webkit-calendar-picker-indicator { filter: invert(0.5) brightness(0.8); }
   ::-webkit-scrollbar { width: 0; }
+  .wm-btn {
+    transition: transform 0.11s ease, opacity 0.13s ease, box-shadow 0.17s ease;
+    user-select: none; cursor: pointer;
+  }
+  .wm-btn:active { transform: scale(0.93) !important; opacity: 0.85 !important; }
+  .wm-float { animation: floatUp 7s ease-in-out infinite; }
+  .wm-node { animation: nodeIn 0.28s ease both; }
+  .wm-fade { animation: fadeUp 0.25s ease both; }
+  .wm-slide { animation: slideUp 0.32s cubic-bezier(0.34,1.1,0.64,1) both; }
 `;
 
-// ─── Shared style factory ────────────────────────────────────────────────────
-function useStyles() {
-  const t = useTheme();
-  return {
-    root: {
-      minHeight: "100dvh",
-      background: t.bgGradient,
-      display: "flex",
-      alignItems: "flex-start",
-      justifyContent: "center",
-      padding: "70px 20px 60px",
-      fontFamily: "'Inter','Segoe UI',sans-serif",
-    },
-    card: {
-      width: "100%",
-      maxWidth: 480,
-      display: "flex",
-      flexDirection: "column",
-      gap: 10,
-    },
-    surface: {
-      background: t.surface,
-      borderRadius: t.cardRadius,
-      border: `1px solid ${t.border}`,
-      boxShadow: t.shadow,
-    },
-    surface2: {
-      background: t.surface2,
-      borderRadius: t.selRadius,
-      border: `1px solid ${t.border}`,
-    },
-    input: {
-      background: t.inputBg,
-      border: `1px solid ${t.inputBorder}`,
-      borderRadius: t.inputRadius,
-      color: t.text,
-      fontSize: 18,
-      padding: "12px 16px",
-      outline: "none",
-      width: "100%",
-    },
-    noteInput: {
-      fontSize: 14,
-      padding: "9px 16px",
-      color: t.textMuted,
-    },
-    btn: {
-      flex: 1,
-      border: "none",
-      borderRadius: t.btnRadius,
-      fontSize: 16,
-      fontWeight: 600,
-      padding: "13px 0",
-      cursor: "pointer",
-      fontFamily: "'Inter','Segoe UI',sans-serif",
-    },
-    btnAdd: {
-      background: t.positiveSoft,
-      color: t.positive,
-      boxShadow: `0 2px 8px ${t.positiveSoft}`,
-    },
-    btnSub: {
-      background: t.negativeSoft,
-      color: t.negative,
-      boxShadow: `0 2px 8px ${t.negativeSoft}`,
-    },
-    tabBar: {
-      position: "fixed",
-      bottom: 0, left: 0, right: 0,
-      height: 56,
-      paddingBottom: "env(safe-area-inset-bottom,6px)",
-      background: t.tabBg,
-      borderTop: `1px solid ${t.tabBorder}`,
-      backdropFilter: "blur(12px)",
-      WebkitBackdropFilter: "blur(12px)",
-      display: "flex",
-      zIndex: 200,
-    },
-    tabBtn: {
-      flex: 1,
-      background: "none",
-      border: "none",
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 3,
-      cursor: "pointer",
-      padding: 0,
-      fontFamily: "'Inter','Segoe UI',sans-serif",
-      transition: "color 0.2s ease",
-    },
-    errorBox: {
-      background: t.negativeSoft,
-      border: `1px solid ${t.negative}30`,
-      borderRadius: t.selRadius,
-      color: t.negative,
-      fontSize: 12,
-      padding: "8px 12px",
-    },
-    sectionLabel: {
-      fontSize: 10,
-      color: t.textFaint,
-      letterSpacing: "0.13em",
-      textTransform: "uppercase",
-      marginBottom: 6,
-      fontWeight: 500,
-    },
-    resetBtn: {
-      background: "none",
-      border: `1px solid ${t.border2}`,
-      borderRadius: t.selRadius,
-      color: t.textFaint,
-      fontSize: 13,
-      padding: "7px 20px",
-      cursor: "pointer",
-    },
-    chevron: {
-      background: "none",
-      border: "none",
-      color: t.textFaint,
-      fontSize: 20,
-      cursor: "pointer",
-      padding: "2px 6px",
-      lineHeight: 1,
-      display: "flex",
-      alignItems: "center",
-      transition: "transform 0.18s ease",
-      fontFamily: "sans-serif",
-    },
-    deleteBtn: {
-      background: "none",
-      border: "none",
-      color: t.deleteColor,
-      fontSize: 18,
-      cursor: "pointer",
-      padding: "4px 6px",
-      lineHeight: 1,
-    },
-  };
+// ─── Wave Background ──────────────────────────────────────────────────────────
+const WAVE1 = genWave(38, 340, 3840, 220);
+const WAVE2 = genWave(24, 420, 3840, 180);
+const WAVE3 = genWave(16, 270, 3840, 140);
+
+function WaveBackground() {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 0, background: C.bg, overflow: "hidden", pointerEvents: "none" }}>
+      <div style={{ position: "absolute", width: 700, height: 700, borderRadius: "50%",
+        background: "radial-gradient(circle,rgba(91,124,255,0.22) 0%,transparent 65%)",
+        top: "-18%", left: "-12%", filter: "blur(70px)", animation: "orb1 22s ease-in-out infinite" }} />
+      <div style={{ position: "absolute", width: 620, height: 620, borderRadius: "50%",
+        background: "radial-gradient(circle,rgba(139,92,255,0.17) 0%,transparent 65%)",
+        bottom: "2%", right: "-10%", filter: "blur(80px)", animation: "orb2 28s ease-in-out infinite" }} />
+      <div style={{ position: "absolute", width: 420, height: 420, borderRadius: "50%",
+        background: "radial-gradient(circle,rgba(88,245,195,0.07) 0%,transparent 70%)",
+        top: "38%", left: "22%", filter: "blur(90px)", animation: "orb3 19s ease-in-out infinite" }} />
+      <div style={{ position: "absolute", width: 320, height: 320, borderRadius: "50%",
+        background: "radial-gradient(circle,rgba(91,124,255,0.1) 0%,transparent 70%)",
+        bottom: "28%", left: "4%", filter: "blur(60px)", animation: "orb2 15s ease-in-out infinite reverse" }} />
+
+      <div style={{ position: "absolute", bottom: 0, left: 0, width: "200%", height: 220,
+        animation: "waveFlow 16s linear infinite" }}>
+        <svg viewBox="0 0 3840 220" style={{ width: "100%", height: "100%" }} preserveAspectRatio="none">
+          <path d={WAVE1} fill="rgba(91,124,255,0.05)" />
+          <path d={WAVE2} fill="rgba(139,92,255,0.04)" />
+        </svg>
+      </div>
+      <div style={{ position: "absolute", bottom: 25, left: 0, width: "200%", height: 160,
+        animation: "waveFlowRev 22s linear infinite" }}>
+        <svg viewBox="0 0 3840 160" style={{ width: "100%", height: "100%" }} preserveAspectRatio="none">
+          <path d={WAVE3} fill="rgba(88,245,195,0.03)" />
+        </svg>
+      </div>
+    </div>
+  );
 }
 
-// ─── WeeklyChart ─────────────────────────────────────────────────────────────
-function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
-  const t = useTheme();
-  const dragRef = useRef({ y: 0, moved: false });
+// ─── Floating Dock ────────────────────────────────────────────────────────────
+const TABS = [
+  { id: "home",      icon: "≈",  label: "Flow"    },
+  { id: "timeline",  icon: "∿",  label: "Stream"  },
+  { id: "countdown", icon: "◎",  label: "Focus"   },
+  { id: "bills",     icon: "▣",  label: "Bills"   },
+  { id: "insights",  icon: "↗",  label: "Insights"},
+];
+
+function FloatingDock({ activeTab, setActiveTab }) {
+  return (
+    <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 200,
+      display: "flex", justifyContent: "center",
+      padding: "8px 12px env(safe-area-inset-bottom,10px)",
+      background: "rgba(5,8,22,0.88)",
+      backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)",
+      borderTop: `1px solid ${C.border}` }}>
+      <div style={{ display: "flex", gap: 3, background: "rgba(11,18,36,0.65)",
+        borderRadius: C.pillRadius, padding: "5px 6px",
+        border: `1px solid ${C.border}`,
+        boxShadow: "0 4px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04)",
+        maxWidth: 420, width: "100%", justifyContent: "space-around" }}>
+        {TABS.map(tab => {
+          const on = tab.id === activeTab;
+          return (
+            <button key={tab.id} className="wm-btn" onClick={() => setActiveTab(tab.id)}
+              style={{ background: on
+                  ? `linear-gradient(135deg,${C.accent},${C.violet})`
+                  : "transparent",
+                border: "none", borderRadius: C.pillRadius,
+                color: on ? "#fff" : C.textFaint,
+                display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center",
+                gap: 2, padding: "7px 12px", minWidth: 52,
+                boxShadow: on ? `0 0 18px ${C.accentGlow}` : "none",
+                transition: "all 0.22s ease",
+                fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+              <span style={{ fontSize: 15, lineHeight: 1 }}>{tab.icon}</span>
+              <span style={{ fontSize: 8, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                {tab.label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Wave Chart ───────────────────────────────────────────────────────────────
+function WaveChart({ entries, now, selectedDay, onSelectDay }) {
+  const drag = useRef({ y: 0, moved: false });
   const days = ["S","M","T","W","T","F","S"];
   const dow = now.getDay();
   const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - dow);
-  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(now.getDate() - dow); weekStart.setHours(0, 0, 0, 0);
 
   const balances = days.map((_, i) => {
     if (i > dow) return null;
-    const dayStart = new Date(weekStart); dayStart.setDate(weekStart.getDate() + i); dayStart.setHours(0,0,0,0);
-    const dayEnd = new Date(weekStart); dayEnd.setDate(weekStart.getDate() + i); dayEnd.setHours(23,59,59,999);
-    return entries.filter(e => { const ts = entryDate(e); return ts >= dayStart && ts <= dayEnd; })
+    const ds = new Date(weekStart); ds.setDate(weekStart.getDate() + i); ds.setHours(0, 0, 0, 0);
+    const de = new Date(weekStart); de.setDate(weekStart.getDate() + i); de.setHours(23, 59, 59, 999);
+    return entries.filter(e => { const ts = entryDate(e); return ts >= ds && ts <= de; })
       .reduce((s, e) => s + Number(e.change), 0);
   });
 
-  const validVals = balances.filter(v => v !== null);
-  if (validVals.length === 0) return null;
+  const valid = balances.filter(v => v !== null);
+  if (!valid.length) return null;
 
-  const W = 300, H = 90;
-  const padLeft = 42, padRight = 8, padTop = 8, padBot = 6;
-  const innerW = W - padLeft - padRight;
-  const innerH = H - padTop - padBot;
-
-  const rawMax = Math.max(...validVals, 0);
-  const rawMin = Math.min(...validVals, 0);
-  const pad = Math.max(rawMax * 0.2, Math.abs(rawMin) * 0.2, 8);
-  const displayMax = rawMax + pad;
-  const displayMin = rawMin - pad;
-  const range = displayMax - displayMin;
-
-  const toY = v => padTop + innerH - ((v - displayMin) / range) * innerH;
-  const toX = i => padLeft + (i / 6) * innerW;
-
+  const W = 300, H = 80, pL = 36, pR = 8, pT = 8, pB = 6;
+  const iW = W - pL - pR, iH = H - pT - pB;
+  const rMax = Math.max(...valid, 0), rMin = Math.min(...valid, 0);
+  const pad = Math.max(rMax * 0.25, Math.abs(rMin) * 0.25, 10);
+  const dMax = rMax + pad, dMin = rMin - pad, range = dMax - dMin;
+  const toY = v => pT + iH - ((v - dMin) / range) * iH;
+  const toX = i => pL + (i / 6) * iW;
   const pts = balances.map((v, i) => v !== null ? { x: toX(i), y: toY(v), v, i } : null).filter(Boolean);
-  const zeroY = toY(0);
+  const zY = toY(0);
   const lp = smoothPath(pts);
-  const areaPath = lp ? `${lp} L${pts[pts.length-1].x},${zeroY} L${pts[0].x},${zeroY} Z` : "";
-  const selectedDow = selectedDay ? selectedDay.getDay() : null;
+  const area = lp ? `${lp} L${pts[pts.length-1].x},${zY} L${pts[0].x},${zY} Z` : "";
+  const selDow = selectedDay ? selectedDay.getDay() : null;
+  const fmtS = v => Math.abs(v) >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${Math.round(v)}`;
 
-  const fmtShort = v => Math.abs(v) >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${Math.round(v)}`;
-
-  const handleTap = i => {
+  const tap = i => {
     if (i > dow) return;
-    if (selectedDow === i) { onSelectDay(null); return; }
-    const d = new Date(weekStart);
-    d.setDate(weekStart.getDate() + i);
-    d.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), 0);
+    if (selDow === i) { onSelectDay(null); return; }
+    const d = new Date(weekStart); d.setDate(weekStart.getDate() + i);
+    d.setHours(now.getHours(), now.getMinutes(), 0, 0);
     onSelectDay(d);
   };
 
   return (
-    <div style={{ width: "100%", marginTop: 10, marginBottom: 2 }}>
-      <svg viewBox={`0 0 ${W} ${H+24}`} style={{ width: "100%", overflow: "visible" }}>
+    <div style={{ width: "100%", marginTop: 8 }}>
+      <svg viewBox={`0 0 ${W} ${H + 22}`} style={{ width: "100%", overflow: "visible" }}>
         <defs>
-          <clipPath id="clip-above"><rect x={0} y={0} width={W} height={zeroY} /></clipPath>
-          <clipPath id="clip-below"><rect x={0} y={zeroY} width={W} height={H+24} /></clipPath>
+          <clipPath id="ca"><rect x={0} y={0} width={W} height={zY} /></clipPath>
+          <clipPath id="cb"><rect x={0} y={zY} width={W} height={H + 22} /></clipPath>
+          <linearGradient id="gp" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={C.teal} stopOpacity="0.22" />
+            <stop offset="100%" stopColor={C.teal} stopOpacity="0" />
+          </linearGradient>
+          <linearGradient id="gn" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={C.rose} stopOpacity="0" />
+            <stop offset="100%" stopColor={C.rose} stopOpacity="0.18" />
+          </linearGradient>
         </defs>
 
-        {[rawMax, (rawMin+rawMax)/2, rawMin].map((val, idx) => {
-          const y = toY(val);
-          return (
-            <g key={idx}>
-              <line x1={padLeft} y1={y} x2={W-padRight} y2={y} stroke={t.chartGrid} strokeWidth={1} />
-              <text x={padLeft-5} y={y+3.5} textAnchor="end" fontSize={9}
-                fontFamily="Inter,Segoe UI,sans-serif" fill={t.textFaint}>
-                {fmtShort(val)}
-              </text>
-            </g>
-          );
-        })}
+        {[rMax, (rMin + rMax) / 2, rMin].map((val, idx) => (
+          <g key={idx}>
+            <line x1={pL} y1={toY(val)} x2={W - pR} y2={toY(val)} stroke="rgba(91,124,255,0.07)" strokeWidth={1} />
+            <text x={pL - 4} y={toY(val) + 3.5} textAnchor="end" fontSize={8}
+              fontFamily="Inter,sans-serif" fill={C.textFaint}>{fmtS(val)}</text>
+          </g>
+        ))}
+        <line x1={pL} y1={zY} x2={W - pR} y2={zY} stroke="rgba(91,124,255,0.18)" strokeWidth={1} strokeDasharray="3 3" />
 
-        <line x1={padLeft} y1={zeroY} x2={W-padRight} y2={zeroY}
-          stroke={t.chartZero} strokeWidth={1} strokeDasharray="3 3" />
-
-        {areaPath && <path d={areaPath} fill={t.positiveArea} clipPath="url(#clip-above)" />}
-        {areaPath && <path d={areaPath} fill={t.negativeArea} clipPath="url(#clip-below)" />}
-        {lp && <path d={lp} fill="none" stroke={t.chartLine} strokeWidth={1.5} strokeLinecap="round" clipPath="url(#clip-above)" />}
-        {lp && <path d={lp} fill="none" stroke={t.chartNeg} strokeWidth={1.5} strokeLinecap="round" clipPath="url(#clip-below)" />}
+        {area && <>
+          <path d={area} fill="url(#gp)" clipPath="url(#ca)" />
+          <path d={area} fill="url(#gn)" clipPath="url(#cb)" />
+        </>}
+        {lp && <>
+          <path d={lp} fill="none" stroke={C.teal} strokeWidth={1.8}
+            strokeLinecap="round" clipPath="url(#ca)"
+            style={{ filter: `drop-shadow(0 0 4px ${C.teal})` }} />
+          <path d={lp} fill="none" stroke={C.rose} strokeWidth={1.8}
+            strokeLinecap="round" clipPath="url(#cb)"
+            style={{ filter: `drop-shadow(0 0 4px ${C.rose})` }} />
+        </>}
 
         {days.map((label, i) => {
-          const x = toX(i);
-          const pt = pts.find(p => p.i === i);
-          const isToday = i === dow;
-          const isSelected = selectedDow === i;
-          const isFuture = i > dow;
+          const x = toX(i), pt = pts.find(p => p.i === i);
+          const isSel = selDow === i, isToday = i === dow, isFut = i > dow;
           return (
             <g key={i}
-              onPointerDown={e => { dragRef.current = { y: e.clientY, moved: false }; }}
-              onPointerMove={e => { if (Math.abs(e.clientY - dragRef.current.y) > 12) dragRef.current.moved = true; }}
-              onPointerCancel={() => { dragRef.current.moved = true; }}
-              onPointerUp={() => { if (!dragRef.current.moved) handleTap(i); }}
-              style={{ cursor: isFuture ? "default" : "pointer" }}>
-              <rect x={x-14} y={0} width={28} height={H+24} fill="rgba(0,0,0,0.01)" />
+              onPointerDown={e => { drag.current = { y: e.clientY, moved: false }; }}
+              onPointerMove={e => { if (Math.abs(e.clientY - drag.current.y) > 10) drag.current.moved = true; }}
+              onPointerUp={() => { if (!drag.current.moved) tap(i); }}
+              style={{ cursor: isFut ? "default" : "pointer" }}>
+              <rect x={x - 13} y={0} width={26} height={H + 22} fill="rgba(0,0,0,0.01)" />
               {pt ? (
-                <circle cx={x} cy={pt.y}
-                  r={isSelected ? 6 : isToday ? 5 : 3}
-                  fill={isSelected ? t.text : isToday ? t.dot : t.dotEmpty}
-                  stroke={isSelected ? t.text : isToday ? t.dot : t.dotStroke}
-                  strokeWidth={1.5}
-                />
-              ) : !isFuture ? (
-                <circle cx={x} cy={zeroY} r={3}
-                  fill={t.dotEmpty} stroke={isSelected ? t.text : t.dotStroke} strokeWidth={1} />
+                <circle cx={x} cy={pt.y} r={isSel ? 6 : isToday ? 5 : 3.5}
+                  fill={isSel ? "#fff" : isToday ? C.accent : pt.v < 0 ? C.rose : C.teal}
+                  style={{ filter: `drop-shadow(0 0 ${isSel ? 8 : 5}px ${isSel ? C.accentGlow : isToday ? C.accentGlow : pt.v < 0 ? C.roseGlow : C.tealGlow})` }} />
+              ) : !isFut ? (
+                <circle cx={x} cy={zY} r={2.5} fill="rgba(91,124,255,0.15)" stroke="rgba(91,124,255,0.3)" strokeWidth={1} />
               ) : null}
-              <text x={x} y={H+20} textAnchor="middle" fontSize={10}
-                fontFamily="Inter,Segoe UI,sans-serif"
-                fill={isSelected ? t.text : isToday ? t.accent : isFuture ? t.border2 : t.textFaint}>
+              <text x={x} y={H + 18} textAnchor="middle" fontSize={9} fontFamily="Inter,sans-serif"
+                fill={isSel ? "#fff" : isToday ? C.accent : isFut ? "rgba(91,124,255,0.18)" : C.textFaint}>
                 {label}
               </text>
             </g>
@@ -325,94 +308,343 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
   );
 }
 
-// ─── EntryRow ────────────────────────────────────────────────────────────────
-function EntryRow({ entry, onDelete, onEdit, showBorder }) {
-  const t = useTheme();
-  const s = useStyles();
-  const isNeg = Number(entry.change) < 0;
-  const tapRef = useRef({ x: 0, y: 0, moved: false });
+// ─── Home Tab ─────────────────────────────────────────────────────────────────
+function HomeTab({ entries, balance, loading, saving, error, now, selectedDay, setSelectedDay,
+  amount, setAmount, note, setNote, apply, deleteEntry, setEditingEntry,
+  reset, showReset, setShowReset, handleKey }) {
+
+  const displayDay = selectedDay || now;
+  const ds = new Date(displayDay); ds.setHours(0, 0, 0, 0);
+  const de = new Date(displayDay); de.setHours(23, 59, 59, 999);
+  const dayNet = entries
+    .filter(e => { const ts = entryDate(e); return ts >= ds && ts <= de; })
+    .reduce((sum, e) => sum + Number(e.change), 0);
+
+  const recent = entries.slice(0, 5);
+
+  const glass = {
+    background: `linear-gradient(135deg,${C.glass} 0%,${C.glass2} 100%)`,
+    border: `1px solid ${C.border}`,
+    borderRadius: C.cardRadius,
+    boxShadow: "0 4px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04)",
+    backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+  };
+
+  const inp = {
+    background: "rgba(255,255,255,0.05)", border: `1px solid ${C.border}`,
+    borderRadius: 14, color: C.text, outline: "none",
+    fontFamily: "'Inter','Segoe UI',sans-serif",
+  };
 
   return (
-    <div
-      onPointerDown={e => { tapRef.current = { x: e.clientX, y: e.clientY, moved: false }; }}
-      onPointerMove={e => {
-        const dx = e.clientX - tapRef.current.x, dy = e.clientY - tapRef.current.y;
-        if (Math.sqrt(dx*dx+dy*dy) >= 8) tapRef.current.moved = true;
-      }}
-      onPointerCancel={() => { tapRef.current.moved = true; }}
-      onPointerUp={e => {
-        if (tapRef.current.moved) return;
-        const dx = e.clientX - tapRef.current.x, dy = e.clientY - tapRef.current.y;
-        if (Math.sqrt(dx*dx+dy*dy) < 8) onEdit(entry);
-      }}
-      style={{ padding: "8px 14px", borderTop: showBorder ? `1px solid ${t.border}` : "none",
-        display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
-        <span style={{ fontSize: 14, fontWeight: 600, color: isNeg ? t.negative : t.positive }}>
-          {isNeg ? "" : "+"}{fmt(Number(entry.change))}
-        </span>
-        {entry.note && <span style={{ fontSize: 11, color: t.textMuted }}>{entry.note}</span>}
+    <div style={{ minHeight: "100dvh", padding: "56px 16px 100px",
+      fontFamily: "'Inter','Segoe UI',sans-serif", position: "relative", zIndex: 1 }}>
+
+      {error && (
+        <div style={{ background: C.roseSoft, border: `1px solid rgba(255,107,138,0.3)`,
+          borderRadius: 12, color: C.rose, fontSize: 12, padding: "8px 14px", marginBottom: 12 }}>
+          {error}
+        </div>
+      )}
+
+      {/* Balance card */}
+      <div className="wm-float" style={{ ...glass,
+        background: "linear-gradient(135deg,rgba(11,18,36,0.94) 0%,rgba(18,28,58,0.88) 100%)",
+        border: `1px solid ${C.border2}`,
+        boxShadow: `0 8px 48px rgba(0,0,0,0.55), 0 0 0 1px rgba(91,124,255,0.06), inset 0 1px 0 rgba(255,255,255,0.06)`,
+        padding: "22px 20px 16px", marginBottom: 12, position: "relative", overflow: "hidden" }}>
+
+        {/* Shimmer sweep */}
+        <div style={{ position: "absolute", inset: 0, overflow: "hidden", borderRadius: "inherit", pointerEvents: "none" }}>
+          <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+            background: "linear-gradient(105deg,transparent 38%,rgba(255,255,255,0.035) 50%,transparent 62%)",
+            animation: "shimmer 5s ease-in-out infinite" }} />
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 11, color: C.textFaint, letterSpacing: "0.11em",
+              textTransform: "uppercase", fontWeight: 500, marginBottom: 6 }}>
+              {now.toLocaleDateString("en-US", { weekday: "long" })}
+              <span style={{ opacity: 0.6 }}>{" · "}{now.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+            </div>
+            <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.13em",
+              textTransform: "uppercase", marginBottom: 3 }}>Balance</div>
+            {loading ? (
+              <div style={{ fontSize: 46, fontWeight: 700, color: C.textFaint, lineHeight: 1,
+                fontVariantNumeric: "tabular-nums" }}>—</div>
+            ) : (
+              <div style={{ fontSize: 46, fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1,
+                fontVariantNumeric: "tabular-nums",
+                color: balance < 0 ? C.rose : C.text,
+                textShadow: balance < 0 ? `0 0 30px ${C.roseGlow}` : "0 0 30px rgba(244,247,255,0.15)" }}>
+                {fmt(balance)}
+              </div>
+            )}
+          </div>
+          {!loading && (
+            <div style={{ textAlign: "right", flexShrink: 0 }}>
+              <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.1em",
+                textTransform: "uppercase", marginBottom: 2 }}>
+                {displayDay.toLocaleDateString("en-US", { weekday: "short" })}
+              </div>
+              <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em",
+                color: dayNet < 0 ? C.rose : C.teal,
+                textShadow: `0 0 18px ${dayNet < 0 ? C.roseGlow : C.tealGlow}` }}>
+                {dayNet > 0 ? "+" : ""}{fmt(dayNet)}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {!loading && (
+          <WaveChart entries={entries} now={now} selectedDay={selectedDay} onSelectDay={setSelectedDay} />
+        )}
       </div>
-      <span style={{ fontSize: 11, color: t.textFaint }}>
-        {entryDate(entry).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-      </span>
-      <button
-        onPointerDown={e => e.stopPropagation()}
-        onPointerUp={e => { e.stopPropagation(); onDelete(entry.id); }}
-        style={s.deleteBtn}>×</button>
+
+      {/* Input area */}
+      <div style={{ ...glass, padding: "16px", marginBottom: 12,
+        display: "flex", flexDirection: "column", gap: 10 }}>
+        <input style={{ ...inp, fontSize: 24, padding: "12px 16px",
+          fontWeight: 700, letterSpacing: "-0.01em",
+          boxShadow: `inset 0 2px 8px rgba(0,0,0,0.25)` }}
+          type="number" inputMode="decimal" placeholder="0.00"
+          value={amount} min="0" disabled={saving}
+          onChange={e => setAmount(e.target.value)} onKeyDown={handleKey} />
+        <input style={{ ...inp, fontSize: 14, padding: "9px 16px", color: C.textMuted }}
+          type="text" placeholder="Note (optional)"
+          value={note} maxLength={80} disabled={saving}
+          onChange={e => setNote(e.target.value)} onKeyDown={handleKey} />
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="wm-btn" onClick={() => apply(1)} disabled={saving}
+            style={{ flex: 1, border: `1px solid rgba(88,245,195,0.22)`, borderRadius: C.btnRadius,
+              background: "linear-gradient(135deg,rgba(88,245,195,0.12),rgba(88,245,195,0.06))",
+              color: C.teal, fontSize: 16, fontWeight: 700, padding: "13px 0",
+              boxShadow: `0 0 20px rgba(88,245,195,0.1)`,
+              opacity: saving ? 0.4 : 1, fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+            + Add
+          </button>
+          <button className="wm-btn" onClick={() => apply(-1)} disabled={saving}
+            style={{ flex: 1, border: `1px solid rgba(255,107,138,0.22)`, borderRadius: C.btnRadius,
+              background: "linear-gradient(135deg,rgba(255,107,138,0.12),rgba(255,107,138,0.06))",
+              color: C.rose, fontSize: 16, fontWeight: 700, padding: "13px 0",
+              boxShadow: `0 0 20px rgba(255,107,138,0.1)`,
+              opacity: saving ? 0.4 : 1, fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+            − Subtract
+          </button>
+        </div>
+      </div>
+
+      {/* Recent entries */}
+      {!loading && recent.length > 0 && (
+        <div className="wm-fade" style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.13em",
+            textTransform: "uppercase", fontWeight: 500, marginBottom: 8 }}>Recent</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {recent.map((e, i) => {
+              const neg = Number(e.change) < 0;
+              return (
+                <div key={e.id} className="wm-btn wm-node" onClick={() => setEditingEntry(e)}
+                  style={{ ...glass, padding: "10px 14px", cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 10,
+                    animationDelay: `${i * 0.06}s` }}>
+                  <div style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0,
+                    background: neg ? C.rose : C.teal,
+                    boxShadow: `0 0 8px ${neg ? C.roseGlow : C.tealGlow}` }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: neg ? C.rose : C.teal }}>
+                      {neg ? "" : "+"}{fmt(Number(e.change))}
+                    </div>
+                    {e.note && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 1 }}>{e.note}</div>}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.textFaint }}>
+                    {entryDate(e).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Reset */}
+      <div style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
+        {!showReset ? (
+          <button className="wm-btn" onClick={() => setShowReset(true)}
+            style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 20,
+              color: C.textFaint, fontSize: 12, padding: "6px 18px", cursor: "pointer",
+              fontFamily: "'Inter','Segoe UI',sans-serif" }}>Reset</button>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: C.textMuted, fontSize: 12 }}>Wipe all entries?</span>
+            <button className="wm-btn" onClick={reset}
+              style={{ background: C.roseSoft, border: `1px solid rgba(255,107,138,0.3)`,
+                borderRadius: 12, color: C.rose, fontSize: 12, padding: "6px 14px",
+                cursor: "pointer", fontFamily: "'Inter','Segoe UI',sans-serif" }}>Yes</button>
+            <button className="wm-btn" onClick={() => setShowReset(false)}
+              style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 12,
+                color: C.textMuted, fontSize: 12, padding: "6px 14px",
+                cursor: "pointer", fontFamily: "'Inter','Segoe UI',sans-serif" }}>Cancel</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-// ─── ThisWeekLog ──────────────────────────────────────────────────────────────
-function ThisWeekLog({ entries, now, onDelete, onEdit }) {
-  const t = useTheme();
-  const s = useStyles();
-  const [expanded, setExpanded] = useState(null);
-  const dayNames = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-  const dow = now.getDay();
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - dow);
-  weekStart.setHours(0,0,0,0);
+// ─── Timeline Tab ─────────────────────────────────────────────────────────────
+function TimelineTab({ entries, now, deleteEntry, setEditingEntry }) {
+  const [expandedWeek, setExpandedWeek] = useState(null);
+  const [expandedDays, setExpandedDays] = useState({});
+  const DAY = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 
-  const days = [];
-  for (let i = 0; i <= dow; i++) {
-    const dayStart = new Date(weekStart); dayStart.setDate(weekStart.getDate()+i); dayStart.setHours(0,0,0,0);
-    const dayEnd = new Date(weekStart); dayEnd.setDate(weekStart.getDate()+i); dayEnd.setHours(23,59,59,999);
-    const items = entries.filter(e => { const ts = entryDate(e); return ts >= dayStart && ts <= dayEnd; });
-    if (!items.length) continue;
-    const net = items.reduce((sum, e) => sum + Number(e.change), 0);
-    days.push({ key: dayStart.toLocaleDateString("en-CA"), name: dayNames[i], items, net });
+  const glass = {
+    background: `linear-gradient(135deg,${C.glass} 0%,${C.glass2} 100%)`,
+    border: `1px solid ${C.border}`,
+    boxShadow: "0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.03)",
+    backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+  };
+
+  const renderEntry = (e, i, border) => {
+    const neg = Number(e.change) < 0;
+    return (
+      <div key={e.id} className="wm-btn" onClick={() => setEditingEntry(e)}
+        style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
+          borderTop: border ? `1px solid ${C.border}` : "none", cursor: "pointer" }}>
+        <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+          background: neg ? C.rose : C.teal,
+          boxShadow: `0 0 6px ${neg ? C.roseGlow : C.tealGlow}` }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: neg ? C.rose : C.teal }}>
+            {neg ? "" : "+"}{fmt(Number(e.change))}
+          </div>
+          {e.note && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 1 }}>{e.note}</div>}
+        </div>
+        <div style={{ fontSize: 10, color: C.textFaint }}>
+          {entryDate(e).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+        </div>
+        <button onPointerDown={ev => ev.stopPropagation()}
+          onPointerUp={ev => { ev.stopPropagation(); deleteEntry(e.id); }}
+          style={{ background: "none", border: "none", color: "rgba(255,107,138,0.4)",
+            fontSize: 18, cursor: "pointer", padding: "2px 6px", lineHeight: 1 }}>×</button>
+      </div>
+    );
+  };
+
+  if (!entries.length) {
+    return (
+      <div style={{ minHeight: "100dvh", display: "flex", alignItems: "center", justifyContent: "center",
+        fontFamily: "'Inter','Segoe UI',sans-serif", zIndex: 1, position: "relative" }}>
+        <div style={{ textAlign: "center", color: C.textFaint }}>
+          <div style={{ fontSize: 44, opacity: 0.35, marginBottom: 10 }}>∿</div>
+          <div style={{ fontSize: 14 }}>No transactions yet</div>
+        </div>
+      </div>
+    );
   }
-  if (!days.length) return null;
+
+  const weekStart = sundayOf(now);
+  const thisWeek = entries.filter(e => entryDate(e) >= weekStart);
+  const past = entries.filter(e => entryDate(e) < weekStart);
+
+  const dayGroups = {};
+  thisWeek.forEach(e => {
+    const d = entryDate(e), k = d.toLocaleDateString("en-CA");
+    if (!dayGroups[k]) dayGroups[k] = { name: DAY[d.getDay()], items: [], net: 0 };
+    dayGroups[k].items.push(e);
+    dayGroups[k].net += Number(e.change);
+  });
+
+  const weekGroups = {};
+  past.forEach(e => {
+    const d = entryDate(e), wk = sundayOf(d).toLocaleDateString("en-CA");
+    if (!weekGroups[wk]) weekGroups[wk] = { label: weekLabelStr(d), items: [], net: 0, dayMap: {} };
+    weekGroups[wk].items.push(e);
+    weekGroups[wk].net += Number(e.change);
+    const dk = d.toLocaleDateString("en-CA");
+    if (!weekGroups[wk].dayMap[dk]) weekGroups[wk].dayMap[dk] = { name: DAY[d.getDay()], items: [], net: 0 };
+    weekGroups[wk].dayMap[dk].items.push(e);
+    weekGroups[wk].dayMap[dk].net += Number(e.change);
+  });
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-      {[...days].reverse().map(({ key, name, items, net }) => {
-        const isOpen = expanded === key;
+    <div style={{ minHeight: "100dvh", padding: "56px 16px 100px",
+      fontFamily: "'Inter','Segoe UI',sans-serif", zIndex: 1, position: "relative" }}>
+
+      {Object.keys(dayGroups).length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.13em",
+            textTransform: "uppercase", fontWeight: 500, marginBottom: 10 }}>This Week</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {Object.entries(dayGroups).sort(([a],[b]) => b.localeCompare(a)).map(([k, { name, items, net }]) => (
+              <div key={k} style={{ ...glass, borderRadius: C.cardRadius }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "12px 14px", cursor: "pointer" }}
+                  onClick={() => setExpandedDays(p => ({ ...p, [k]: !p[k] }))}>
+                  <span style={{ fontSize: 13, color: C.textMuted, fontWeight: 500 }}>{name}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 15, fontWeight: 600,
+                      color: net < 0 ? C.rose : C.teal,
+                      textShadow: `0 0 12px ${net < 0 ? C.roseGlow : C.tealGlow}` }}>
+                      {net > 0 ? "+" : ""}{fmt(net)}
+                    </span>
+                    <span style={{ color: C.textFaint, fontSize: 16,
+                      transform: expandedDays[k] ? "rotate(90deg)" : "none",
+                      display: "inline-block", transition: "transform 0.18s" }}>›</span>
+                  </div>
+                </div>
+                {expandedDays[k] && items.sort((a,b) => entryDate(b) - entryDate(a)).map((e,i) => renderEntry(e,i,i>0))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {Object.entries(weekGroups).sort(([a],[b]) => b.localeCompare(a)).map(([wk, { label, net, dayMap }]) => {
+        const isOpen = expandedWeek === wk;
         return (
-          <div key={key} className="kb-fade-in">
-            <div onClick={() => setExpanded(isOpen ? null : key)}
-              style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-                background: t.surface, padding: "10px 14px", cursor: "pointer",
-                borderRadius: isOpen ? `${t.cardRadius}px ${t.cardRadius}px 0 0` : t.cardRadius,
-                border: `1px solid ${t.border}`,
-                borderBottom: isOpen ? `1px solid ${t.border}` : `1px solid ${t.border}`,
-                boxShadow: t.shadow }}>
-              <span style={{ fontSize: 13, color: t.textMuted, fontWeight: 500 }}>{name}</span>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? t.negative : t.positive }}>
-                  {net > 0 ? "+" : ""}{fmt(net)}
-                </span>
-                <span style={{ ...s.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
+          <div key={wk} style={{ marginBottom: 8 }}>
+            <div style={{ ...glass,
+              borderRadius: isOpen ? `${C.cardRadius}px ${C.cardRadius}px 0 0` : C.cardRadius }}
+              onClick={() => setExpandedWeek(isOpen ? null : wk)}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                padding: "12px 14px", cursor: "pointer" }}>
+                <span style={{ fontSize: 13, color: C.textMuted, fontWeight: 500 }}>{label}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600,
+                    color: net < 0 ? C.rose : C.teal,
+                    textShadow: `0 0 12px ${net < 0 ? C.roseGlow : C.tealGlow}` }}>
+                    {net > 0 ? "+" : ""}{fmt(net)}
+                  </span>
+                  <span style={{ color: C.textFaint, fontSize: 16, display: "inline-block",
+                    transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s" }}>›</span>
+                </div>
               </div>
             </div>
             {isOpen && (
-              <div style={{ background: t.surface2, borderRadius: `0 0 ${t.cardRadius}px ${t.cardRadius}px`,
-                border: `1px solid ${t.border}`, borderTop: "none" }}>
-                {[...items].sort((a,b) => entryDate(b)-entryDate(a)).map((e,i) => (
-                  <EntryRow key={e.id} entry={e} onDelete={onDelete} onEdit={onEdit} showBorder={i>0} />
-                ))}
+              <div style={{ ...glass, borderRadius: `0 0 ${C.cardRadius}px ${C.cardRadius}px`,
+                borderTop: "none", overflow: "hidden" }}>
+                {Object.entries(dayMap).sort(([a],[b]) => b.localeCompare(a)).map(([dk, { name, items: di, net: dn }]) => {
+                  const dayKey = `${wk}|${dk}`, isDayOpen = !!expandedDays[dayKey];
+                  return (
+                    <div key={dk} style={{ borderTop: `1px solid ${C.border}` }}>
+                      <div onClick={() => setExpandedDays(p => ({ ...p, [dayKey]: !p[dayKey] }))}
+                        style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                          padding: "9px 14px", cursor: "pointer" }}>
+                        <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase",
+                          letterSpacing: "0.08em" }}>{name}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: dn < 0 ? C.rose : C.teal }}>
+                            {dn > 0 ? "+" : ""}{fmt(dn)}
+                          </span>
+                          <span style={{ color: C.textFaint, fontSize: 14, display: "inline-block",
+                            transform: isDayOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s" }}>›</span>
+                        </div>
+                      </div>
+                      {isDayOpen && di.sort((a,b) => entryDate(b) - entryDate(a)).map((e,i) => renderEntry(e,i,i>0))}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -422,149 +654,628 @@ function ThisWeekLog({ entries, now, onDelete, onEdit }) {
   );
 }
 
-// ─── WeeklyLog ────────────────────────────────────────────────────────────────
-function WeeklyLog({ entries, now, onDelete, onEdit }) {
-  const t = useTheme();
-  const s = useStyles();
-  const [expandedWeek, setExpandedWeek] = useState(null);
-  const [expandedDays, setExpandedDays] = useState({});
-  const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+// ─── Countdown Ring ───────────────────────────────────────────────────────────
+function CountdownRing({ pct, radius, color, glow, size }) {
+  const circ = 2 * Math.PI * radius;
+  const offset = circ * (1 - Math.min(1, Math.max(0, pct)));
+  const cx = size / 2, cy = size / 2;
+  return (
+    <svg width={size} height={size} style={{ transform: "rotate(-90deg)", display: "block" }}>
+      <circle cx={cx} cy={cy} r={radius} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth={6} />
+      <circle cx={cx} cy={cy} r={radius} fill="none" stroke={color} strokeWidth={6}
+        strokeLinecap="round" strokeDasharray={circ} strokeDashoffset={offset}
+        style={{ filter: `drop-shadow(0 0 8px ${glow})`,
+          transition: "stroke-dashoffset 1.3s cubic-bezier(0.4,0,0.2,1)" }} />
+    </svg>
+  );
+}
 
-  const sundayOf = d => {
-    const s2 = new Date(d); s2.setDate(d.getDate()-d.getDay()); s2.setHours(0,0,0,0); return s2;
+// ─── Countdown Tab ────────────────────────────────────────────────────────────
+function CountdownTab() {
+  const [countdowns, setCountdowns] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [label, setLabel] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [dueTime, setDueTime] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [editingCountdown, setEditingCountdown] = useState(null);
+
+  useEffect(() => { fetchCountdowns(); }, []);
+  useEffect(() => { const id = setInterval(() => setCountdowns(c => [...c]), 60000); return () => clearInterval(id); }, []);
+
+  const fetchCountdowns = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("countdowns").select("*").order("due_at", { ascending: true });
+    if (data) setCountdowns(data);
+    setLoading(false);
   };
-  const weekKey = d => sundayOf(d).toLocaleDateString("en-CA");
-  const weekLabel = d => {
-    const s2 = sundayOf(d);
-    return `${s2.toLocaleDateString("en-US",{month:"long"})} Week ${Math.floor((s2.getDate()-1)/7)+1}`;
+
+  const addCountdown = async () => {
+    const trimLabel = label.trim();
+    if (!trimLabel || !dueDate) return;
+    const due = new Date(`${dueDate}T${dueTime || "00:00"}:00`);
+    if (isNaN(due.getTime())) return;
+    setSaving(true);
+    const { data, error } = await supabase.from("countdowns")
+      .insert({ label: trimLabel, due_at: due.toISOString() }).select().single();
+    if (data) {
+      setCountdowns(prev => [...prev, data].sort((a,b) => new Date(a.due_at) - new Date(b.due_at)));
+      setLabel(""); setDueDate(""); setDueTime("");
+    } else if (error) alert("Could not save. Make sure the 'countdowns' table exists.");
+    setSaving(false);
   };
 
-  const calWeekStart = sundayOf(now);
-  const past = entries.filter(e => entryDate(e) < calWeekStart);
-  if (!past.length) return null;
+  const deleteCountdown = async id => {
+    setCountdowns(prev => prev.filter(c => c.id !== id));
+    await supabase.from("countdowns").delete().eq("id", id);
+  };
 
-  const groups = {};
-  past.forEach(e => {
-    const d = entryDate(e), k = weekKey(d);
-    if (!groups[k]) groups[k] = { label: weekLabel(d), sunday: sundayOf(d), items: [], net: 0 };
-    groups[k].items.push(e);
-    groups[k].net += Number(e.change);
-  });
+  const updateCountdown = async (id, newLabel, newDueAt) => {
+    setCountdowns(prev =>
+      prev.map(c => c.id === id ? { ...c, label: newLabel, due_at: newDueAt } : c)
+        .sort((a,b) => new Date(a.due_at) - new Date(b.due_at))
+    );
+    await supabase.from("countdowns").update({ label: newLabel, due_at: newDueAt }).eq("id", id);
+  };
 
-  const weeks = Object.entries(groups).sort(([a],[b]) => b.localeCompare(a));
+  const getRem = due_at => {
+    const diff = new Date(due_at) - new Date();
+    if (diff <= 0) return { expired: true };
+    const m = Math.floor(diff / 60000);
+    return { expired: false, days: Math.floor(m / 1440), hours: Math.floor((m % 1440) / 60), mins: m % 60 };
+  };
 
-  const toggleDay = (wk, dk) => {
-    const c = `${wk}|${dk}`;
-    setExpandedDays(prev => ({ ...prev, [c]: !prev[c] }));
+  const getPct = (due_at, created_at) => {
+    const due = new Date(due_at), c = created_at ? new Date(created_at) : new Date(due - 30*24*3600*1000);
+    return Math.max(0, Math.min(1, (new Date() - c) / Math.max(1, due - c)));
+  };
+
+  const fmtDue = due_at => {
+    const d = new Date(due_at);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) +
+      " at " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  };
+
+  const glass = {
+    background: "linear-gradient(135deg,rgba(11,18,36,0.92) 0%,rgba(18,28,58,0.87) 100%)",
+    border: `1px solid ${C.border}`,
+    borderRadius: C.cardRadius,
+    boxShadow: "0 8px 40px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05)",
+    backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
+  };
+
+  const inp = {
+    background: "rgba(255,255,255,0.05)", border: `1px solid ${C.border}`,
+    borderRadius: 13, color: C.text, fontSize: 14, padding: "10px 13px", outline: "none",
+    fontFamily: "'Inter','Segoe UI',sans-serif", width: "100%",
   };
 
   return (
-    <div style={{ marginTop: 14 }}>
-      <div style={s.sectionLabel}>Weekly</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-        {weeks.map(([k, { label, sunday, items, net }]) => {
-          const isOpen = expandedWeek === k;
+    <>
+      {editingCountdown && (
+        <EditCountdownModal countdown={editingCountdown} onSave={updateCountdown}
+          onClose={() => setEditingCountdown(null)} />
+      )}
+      <div style={{ minHeight: "100dvh", padding: "56px 16px 100px",
+        fontFamily: "'Inter','Segoe UI',sans-serif", zIndex: 1, position: "relative" }}>
 
-          const dayMap = {};
-          items.forEach(e => {
-            const d = entryDate(e), dk = d.toLocaleDateString("en-CA");
-            if (!dayMap[dk]) dayMap[dk] = [];
-            dayMap[dk].push(e);
-          });
+        <div style={{ fontSize: 13, color: C.textMuted, fontWeight: 500, letterSpacing: "0.01em", marginBottom: 16 }}>
+          Focus Space
+        </div>
 
-          const weekDays = Array.from({ length: 7 }, (_, i) => {
-            const date = new Date(sunday); date.setDate(sunday.getDate()+i);
-            const dk = date.toLocaleDateString("en-CA");
-            const dayEntries = dayMap[dk] || [];
-            const dayNet = dayEntries.reduce((sum, e) => sum + Number(e.change), 0);
-            return { name: DAY_NAMES[i], dk, dayEntries, dayNet };
-          });
+        {/* Add form */}
+        <div style={{ ...glass, padding: "16px", marginBottom: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.13em", textTransform: "uppercase", fontWeight: 500 }}>
+            New Countdown
+          </div>
+          <input style={inp} type="text" placeholder="Event name"
+            value={label} maxLength={80} disabled={saving}
+            onChange={e => setLabel(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") addCountdown(); }} />
+          <div style={{ display: "flex", gap: 8 }}>
+            <input style={{ ...inp, flex: 3, width: "auto" }} type="date"
+              value={dueDate} disabled={saving} onChange={e => setDueDate(e.target.value)} />
+            <input style={{ ...inp, flex: 2, width: "auto" }} type="time"
+              value={dueTime} disabled={saving} onChange={e => setDueTime(e.target.value)} />
+          </div>
+          <button className="wm-btn" onClick={addCountdown}
+            disabled={saving || !label.trim() || !dueDate}
+            style={{ border: `1px solid ${C.border2}`, borderRadius: C.btnRadius,
+              background: `linear-gradient(135deg,${C.accentSoft},${C.violetSoft})`,
+              color: C.accent, fontSize: 14, fontWeight: 600, padding: "10px 0",
+              opacity: (saving || !label.trim() || !dueDate) ? 0.4 : 1,
+              fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+            + Add Countdown
+          </button>
+        </div>
 
-          return (
-            <div key={k}>
-              <div onClick={() => {
-                setExpandedWeek(isOpen ? null : k);
-                if (isOpen) setExpandedDays(prev => {
-                  const next = { ...prev };
-                  Object.keys(next).forEach(key => { if (key.startsWith(`${k}|`)) delete next[key]; });
-                  return next;
-                });
-              }}
-                style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-                  background: t.surface, padding: "10px 14px", cursor: "pointer",
-                  borderRadius: isOpen ? `${t.cardRadius}px ${t.cardRadius}px 0 0` : t.cardRadius,
-                  border: `1px solid ${t.border}`,
-                  boxShadow: t.shadow }}>
-                <span style={{ fontSize: 13, color: t.textMuted, fontWeight: 500 }}>{label}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? t.negative : t.positive }}>
-                    {net > 0 ? "+" : ""}{fmt(net)}
-                  </span>
-                  <span style={{ ...s.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
-                </div>
-              </div>
+        {loading ? (
+          <div style={{ textAlign: "center", color: C.textFaint, padding: "30px 0", fontSize: 13 }}>Loading…</div>
+        ) : countdowns.length === 0 ? (
+          <div style={{ textAlign: "center", color: C.textFaint, padding: "40px 0" }}>
+            <div style={{ fontSize: 40, opacity: 0.3, marginBottom: 10 }}>◎</div>
+            <div style={{ fontSize: 13 }}>No countdowns yet</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {countdowns.map(c => {
+              const rem = getRem(c.due_at);
+              const pct = getPct(c.due_at, c.created_at);
+              const col = rem.expired ? C.textFaint : pct > 0.85 ? C.rose : pct > 0.55 ? C.amber : C.accent;
+              const glow = rem.expired ? "transparent" : pct > 0.85 ? C.roseGlow : pct > 0.55 ? C.amberGlow : C.accentGlow;
+              return (
+                <div key={c.id} className="wm-btn wm-fade"
+                  onClick={() => setEditingCountdown(c)}
+                  style={{ ...glass, padding: "18px 16px", cursor: "pointer", position: "relative", overflow: "hidden" }}>
 
-              {isOpen && (
-                <div style={{ background: t.surface2, borderRadius: `0 0 ${t.cardRadius}px ${t.cardRadius}px`,
-                  border: `1px solid ${t.border}`, borderTop: "none", overflow: "hidden" }}>
-                  {weekDays.map(({ name, dk, dayEntries, dayNet }, di) => {
-                    const composite = `${k}|${dk}`;
-                    const isDayOpen = !!expandedDays[composite];
-                    const hasEntries = dayEntries.length > 0;
-                    return (
-                      <div key={dk} style={{ borderTop: di > 0 ? `1px solid ${t.border}` : "none" }}>
-                        <div onClick={() => hasEntries && toggleDay(k, dk)}
-                          style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-                            padding: "9px 14px", cursor: hasEntries ? "pointer" : "default" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 12, color: hasEntries ? t.textMuted : t.textFaint,
-                              letterSpacing: "0.07em", textTransform: "uppercase", minWidth: 72 }}>
-                              {name}
-                            </span>
-                            {hasEntries && (
-                              <span style={{ fontSize: 11, color: t.textFaint }}>
-                                {dayEntries.length} {dayEntries.length === 1 ? "txn" : "txns"}
-                              </span>
-                            )}
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                            {hasEntries ? (
-                              <>
-                                <span style={{ fontSize: 13, fontWeight: 600, color: dayNet < 0 ? t.negative : t.positive }}>
-                                  {dayNet > 0 ? "+" : ""}{fmt(dayNet)}
-                                </span>
-                                <span style={{ ...s.chevron, fontSize: 16,
-                                  transform: isDayOpen ? "rotate(90deg)" : "none" }}>›</span>
-                              </>
-                            ) : (
-                              <span style={{ fontSize: 11, color: t.textFaint }}>—</span>
-                            )}
-                          </div>
-                        </div>
-                        {isDayOpen && hasEntries && (
-                          <div style={{ background: t.surface3 || t.surface2 }}>
-                            {[...dayEntries].sort((a,b) => entryDate(b)-entryDate(a)).map((e,i) => (
-                              <EntryRow key={e.id} entry={e} onDelete={onDelete} onEdit={onEdit} showBorder={i>0} />
-                            ))}
-                          </div>
+                  <div style={{ position: "absolute", top: 8, right: 8, width: 100, height: 100,
+                    borderRadius: "50%",
+                    background: `radial-gradient(circle,${glow} 0%,transparent 70%)`,
+                    opacity: 0.35, pointerEvents: "none" }} />
+
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 14 }}>
+                    <div style={{ flexShrink: 0, position: "relative" }}>
+                      <CountdownRing pct={pct} radius={42} color={col} glow={glow} size={100} />
+                      <div style={{ position: "absolute", inset: 0, display: "flex",
+                        flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                        {rem.expired ? (
+                          <span style={{ fontSize: 10, color: C.textFaint, fontStyle: "italic" }}>done</span>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: 20, fontWeight: 700, color: col, lineHeight: 1,
+                              textShadow: `0 0 14px ${glow}` }}>{rem.days}</div>
+                            <div style={{ fontSize: 8, color: C.textFaint, letterSpacing: "0.1em", textTransform: "uppercase" }}>days</div>
+                          </>
                         )}
                       </div>
-                    );
-                  })}
+                    </div>
+
+                    <div style={{ flex: 1, minWidth: 0, paddingTop: 4 }}>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginBottom: 3,
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</div>
+                      <div style={{ fontSize: 11, color: C.textFaint, marginBottom: 10 }}>{fmtDue(c.due_at)}</div>
+                      {!rem.expired && (
+                        <div style={{ display: "flex", gap: 6 }}>
+                          {[{ v: rem.hours, u: "hrs" }, { v: rem.mins, u: "min" }].map(({ v, u }) => (
+                            <div key={u} style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10,
+                              padding: "6px 10px", border: `1px solid ${C.border}`, textAlign: "center", minWidth: 44 }}>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: col, letterSpacing: "-0.02em",
+                                textShadow: `0 0 10px ${glow}` }}>{v}</div>
+                              <div style={{ fontSize: 8, color: C.textFaint, textTransform: "uppercase", letterSpacing: "0.1em" }}>{u}</div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <button onClick={ev => { ev.stopPropagation(); deleteCountdown(c.id); }}
+                      style={{ background: "none", border: "none", color: "rgba(255,107,138,0.4)",
+                        fontSize: 20, cursor: "pointer", padding: 0, lineHeight: 1, flexShrink: 0 }}>×</button>
+                  </div>
+
+                  {!rem.expired && (
+                    <div style={{ marginTop: 14, height: 2, background: "rgba(255,255,255,0.05)", borderRadius: 1, overflow: "hidden" }}>
+                      <div style={{ height: "100%", width: `${pct * 100}%`, background: col,
+                        borderRadius: 1, boxShadow: `0 0 6px ${glow}`, transition: "width 0.8s ease" }} />
+                    </div>
+                  )}
                 </div>
-              )}
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ─── Bills Tab ────────────────────────────────────────────────────────────────
+function BillsTab({ now }) {
+  const [subs, setSubs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selDay, setSelDay] = useState(null);
+  const [subName, setSubName] = useState("");
+  const [subAmt, setSubAmt] = useState("");
+  const [subDay, setSubDay] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { fetchSubs(); }, []);
+
+  const fetchSubs = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("subscriptions").select("*").order("day_of_month", { ascending: true });
+    if (data) setSubs(data);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (!loading && subs.length > 0) runAutoDeductions(subs);
+  }, [loading]);
+
+  const runAutoDeductions = async list => {
+    const todayNum = now.getDate(), todayStr = now.toLocaleDateString("en-CA");
+    const due = list.filter(s => s.day_of_month === todayNum);
+    if (!due.length) return;
+    const { data: te } = await supabase.from("money_entries").select("*")
+      .gte("ts", `${todayStr}T00:00:00`).lte("ts", `${todayStr}T23:59:59`);
+    for (const sub of due) {
+      const already = (te || []).some(e => e.note === sub.name && Number(e.change) === -Math.abs(Number(sub.amount)));
+      if (!already) await supabase.from("money_entries").insert({
+        change: -Math.abs(Number(sub.amount)), note: sub.name,
+        ts: new Date().toISOString(), created_at: new Date().toISOString(),
+      });
+    }
+  };
+
+  const addSub = async () => {
+    const name = subName.trim(), amount = parseFloat(subAmt), day = parseInt(subDay, 10);
+    if (!name || isNaN(amount) || amount <= 0 || isNaN(day) || day < 1 || day > 31) return;
+    setSaving(true);
+    const { data } = await supabase.from("subscriptions").insert({ name, amount, day_of_month: day }).select().single();
+    if (data) setSubs(prev => [...prev, data].sort((a,b) => a.day_of_month - b.day_of_month));
+    setSubName(""); setSubAmt(""); setSubDay(""); setSaving(false);
+  };
+
+  const deleteSub = async id => {
+    await supabase.from("subscriptions").delete().eq("id", id);
+    setSubs(prev => prev.filter(s => s.id !== id));
+  };
+
+  const year = now.getFullYear(), month = now.getMonth();
+  const firstDow = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const todayDate = now.getDate();
+  const monthLabel = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  const byDay = {};
+  subs.forEach(s => { if (!byDay[s.day_of_month]) byDay[s.day_of_month] = []; byDay[s.day_of_month].push(s); });
+  const upcoming = subs.filter(s => s.day_of_month >= todayDate).reduce((sum,s) => sum + Number(s.amount), 0);
+
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const glass = {
+    background: `linear-gradient(135deg,${C.glass} 0%,${C.glass2} 100%)`,
+    border: `1px solid ${C.border}`,
+    borderRadius: C.cardRadius,
+    boxShadow: "0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.03)",
+    backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+  };
+
+  const inp = {
+    background: "rgba(255,255,255,0.05)", border: `1px solid ${C.border}`,
+    borderRadius: 12, color: C.text, fontSize: 14, padding: "10px 12px", outline: "none",
+    fontFamily: "'Inter','Segoe UI',sans-serif",
+  };
+
+  return (
+    <div style={{ minHeight: "100dvh", padding: "56px 16px 100px",
+      fontFamily: "'Inter','Segoe UI',sans-serif", zIndex: 1, position: "relative" }}>
+
+      <div style={{ fontSize: 13, color: C.textMuted, fontWeight: 500, marginBottom: 16 }}>{monthLabel}</div>
+
+      {/* Calendar */}
+      <div style={{ ...glass, padding: "14px 10px 12px", marginBottom: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", marginBottom: 8 }}>
+          {["S","M","T","W","T","F","S"].map((d,i) => (
+            <div key={i} style={{ textAlign: "center", fontSize: 10, color: C.textFaint, fontWeight: 600, letterSpacing: "0.08em" }}>{d}</div>
+          ))}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: "3px 2px" }}>
+          {cells.map((d, i) => {
+            if (d === null) return <div key={`e${i}`} />;
+            const isPast = d < todayDate, isToday = d === todayDate, isSel = selDay === d;
+            const hasBills = (byDay[d] || []).length > 0;
+            const dotCount = Math.min((byDay[d] || []).length, 3);
+            return (
+              <div key={d} onClick={() => hasBills && setSelDay(isSel ? null : d)}
+                style={{ position: "relative", display: "flex", flexDirection: "column",
+                  alignItems: "center", justifyContent: "center", height: 40, borderRadius: 12,
+                  cursor: hasBills ? "pointer" : "default",
+                  background: isSel ? C.accentSoft : "transparent",
+                  border: isToday ? `1px solid ${C.accent}` : isSel ? `1px solid ${C.border2}` : "1px solid transparent",
+                  boxShadow: isToday ? `0 0 10px ${C.accentGlow}` : isSel ? `0 0 10px ${C.accentGlow}` : "none",
+                  transition: "all 0.15s ease" }}>
+                <span style={{ fontSize: 13, fontWeight: isToday ? 700 : 400, lineHeight: 1,
+                  color: isToday ? C.accent : isPast ? C.textFaint : C.text,
+                  marginBottom: hasBills ? 2 : 0 }}>{d}</span>
+                {hasBills && (
+                  <div style={{ display: "flex", gap: 2 }}>
+                    {Array.from({ length: dotCount }).map((_, di) => (
+                      <div key={di} style={{ width: 3, height: 3, borderRadius: "50%",
+                        background: C.amber, boxShadow: `0 0 4px ${C.amberGlow}` }} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Selected day */}
+      {selDay !== null && (
+        <div className="wm-fade" style={{ ...glass, padding: "12px 14px", marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: C.textMuted, letterSpacing: "0.1em", textTransform: "uppercase",
+            marginBottom: 8, fontWeight: 500 }}>
+            {now.toLocaleDateString("en-US", { month: "long" })} {selDay}
+          </div>
+          {(byDay[selDay] || []).map(sub => (
+            <div key={sub.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 0" }}>
+              <div>
+                <div style={{ fontSize: 14, color: C.text }}>{sub.name}</div>
+                <div style={{ fontSize: 12, color: C.amber }}>{fmt(sub.amount)}/mo</div>
+              </div>
+              <button onClick={() => deleteSub(sub.id)}
+                style={{ background: "none", border: "none", color: "rgba(255,107,138,0.4)",
+                  fontSize: 18, cursor: "pointer", padding: "4px 6px" }}>×</button>
             </div>
-          );
-        })}
+          ))}
+        </div>
+      )}
+
+      {/* Upcoming total */}
+      {subs.length > 0 && (
+        <div style={{ ...glass, padding: "10px 14px", marginBottom: 12,
+          display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span style={{ fontSize: 11, color: C.textMuted, letterSpacing: "0.08em",
+            textTransform: "uppercase", fontWeight: 500 }}>Upcoming this month</span>
+          <span style={{ fontSize: 15, fontWeight: 600, color: C.amber,
+            textShadow: `0 0 12px ${C.amberGlow}` }}>{fmt(upcoming)}</span>
+        </div>
+      )}
+
+      {/* Add subscription */}
+      <div style={{ ...glass, padding: "14px", marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.13em", textTransform: "uppercase", fontWeight: 500 }}>
+          Add Subscription
+        </div>
+        <input style={{ ...inp, width: "100%" }} type="text" placeholder="Name (e.g. Netflix)"
+          value={subName} maxLength={60} disabled={saving} onChange={e => setSubName(e.target.value)} />
+        <div style={{ display: "flex", gap: 8 }}>
+          <input style={{ ...inp, flex: 2 }} type="number" inputMode="decimal"
+            placeholder="Amount" value={subAmt} min="0" disabled={saving} onChange={e => setSubAmt(e.target.value)} />
+          <input style={{ ...inp, flex: 1 }} type="number" inputMode="numeric"
+            placeholder="Day" value={subDay} min="1" max="31" disabled={saving} onChange={e => setSubDay(e.target.value)} />
+        </div>
+        <button className="wm-btn" onClick={addSub} disabled={saving}
+          style={{ border: `1px solid ${C.border2}`, borderRadius: C.btnRadius,
+            background: `linear-gradient(135deg,${C.amberSoft},rgba(255,154,74,0.06))`,
+            color: C.amber, fontSize: 14, fontWeight: 600, padding: "10px 0",
+            opacity: saving ? 0.4 : 1, fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+          + Add Subscription
+        </button>
+      </div>
+
+      {/* Active subs */}
+      {!loading && subs.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.13em",
+            textTransform: "uppercase", fontWeight: 500, marginBottom: 8 }}>Active</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+            {subs.map(sub => (
+              <div key={sub.id} style={{ ...glass, borderRadius: 14, padding: "10px 14px",
+                display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 11, color: C.amber, fontWeight: 600, minWidth: 22, textAlign: "right" }}>
+                    {sub.day_of_month}
+                  </span>
+                  <span style={{ fontSize: 14, color: C.text }}>{sub.name}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: C.rose }}>-{fmt(sub.amount)}</span>
+                  <button onClick={() => deleteSub(sub.id)}
+                    style={{ background: "none", border: "none", color: "rgba(255,107,138,0.4)",
+                      fontSize: 18, cursor: "pointer", padding: "4px 6px", lineHeight: 1 }}>×</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {loading && <div style={{ textAlign: "center", color: C.textFaint, padding: "20px 0", fontSize: 13 }}>Loading…</div>}
+    </div>
+  );
+}
+
+// ─── Insights Tab ─────────────────────────────────────────────────────────────
+function InsightsTab({ entries, now }) {
+  const ws = sundayOf(now);
+  const lastWs = new Date(ws); lastWs.setDate(ws.getDate() - 7);
+  const lastWe = new Date(ws); lastWe.setMilliseconds(-1);
+
+  const thisWeekEntries = entries.filter(e => entryDate(e) >= ws);
+  const lastWeekEntries = entries.filter(e => { const t = entryDate(e); return t >= lastWs && t <= lastWe; });
+  const thisWeekNet = thisWeekEntries.reduce((s,e) => s + Number(e.change), 0);
+  const lastWeekNet = lastWeekEntries.reduce((s,e) => s + Number(e.change), 0);
+
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthNet = entries.filter(e => entryDate(e) >= monthStart).reduce((s,e) => s + Number(e.change), 0);
+
+  const allTime = entries.reduce((s,e) => s + Number(e.change), 0);
+
+  // Daily nets for last 14 days
+  const dailyNets = Array.from({ length: 14 }, (_, i) => {
+    const d = new Date(now); d.setDate(now.getDate() - (13 - i)); d.setHours(0,0,0,0);
+    const de = new Date(d); de.setHours(23,59,59,999);
+    return { net: entries.filter(e => { const ts = entryDate(e); return ts >= d && ts <= de; }).reduce((s,e) => s + Number(e.change), 0), d };
+  });
+
+  const maxAbs = Math.max(...dailyNets.map(d => Math.abs(d.net)), 1);
+  const pct = v => Math.abs(v) / maxAbs;
+
+  const weekDiff = lastWeekNet !== 0 ? ((thisWeekNet - lastWeekNet) / Math.abs(lastWeekNet)) * 100 : null;
+
+  const glass = {
+    background: `linear-gradient(135deg,${C.glass} 0%,${C.glass2} 100%)`,
+    border: `1px solid ${C.border}`,
+    borderRadius: C.cardRadius,
+    boxShadow: "0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.03)",
+    backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+  };
+
+  return (
+    <div style={{ minHeight: "100dvh", padding: "56px 16px 100px",
+      fontFamily: "'Inter','Segoe UI',sans-serif", zIndex: 1, position: "relative" }}>
+
+      <div style={{ fontSize: 13, color: C.textMuted, fontWeight: 500, marginBottom: 16 }}>Flow Insights</div>
+
+      {/* Week comparison */}
+      <div style={{ ...glass, padding: "18px", marginBottom: 12 }}>
+        <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.13em",
+          textTransform: "uppercase", fontWeight: 500, marginBottom: 14 }}>Weekly Momentum</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1, background: "rgba(255,255,255,0.03)", borderRadius: 14,
+            padding: "12px", border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.1em",
+              textTransform: "uppercase", marginBottom: 6 }}>This Week</div>
+            <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em",
+              color: thisWeekNet < 0 ? C.rose : C.teal,
+              textShadow: `0 0 16px ${thisWeekNet < 0 ? C.roseGlow : C.tealGlow}` }}>
+              {thisWeekNet > 0 ? "+" : ""}{fmt(thisWeekNet)}
+            </div>
+          </div>
+          <div style={{ flex: 1, background: "rgba(255,255,255,0.03)", borderRadius: 14,
+            padding: "12px", border: `1px solid ${C.border}` }}>
+            <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.1em",
+              textTransform: "uppercase", marginBottom: 6 }}>Last Week</div>
+            <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: "-0.02em",
+              color: lastWeekNet < 0 ? C.rose : C.teal }}>
+              {lastWeekNet > 0 ? "+" : ""}{fmt(lastWeekNet)}
+            </div>
+          </div>
+        </div>
+        {weekDiff !== null && (
+          <div style={{ marginTop: 12, fontSize: 13, color: weekDiff >= 0 ? C.teal : C.rose, fontWeight: 600 }}>
+            {weekDiff >= 0 ? "↑" : "↓"} {Math.abs(weekDiff).toFixed(1)}% vs last week
+          </div>
+        )}
+      </div>
+
+      {/* 14-day bar chart */}
+      <div style={{ ...glass, padding: "18px", marginBottom: 12 }}>
+        <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.13em",
+          textTransform: "uppercase", fontWeight: 500, marginBottom: 14 }}>14-Day Flow</div>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 80 }}>
+          {dailyNets.map(({ net, d }, i) => {
+            const h = Math.max(4, pct(net) * 72);
+            const isToday = d.toLocaleDateString("en-CA") === now.toLocaleDateString("en-CA");
+            return (
+              <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "flex-end", height: 80 }}>
+                <div style={{ width: "100%", height: h, borderRadius: 4,
+                  background: net < 0 ? C.rose : C.teal,
+                  boxShadow: `0 0 8px ${net < 0 ? C.roseGlow : C.tealGlow}`,
+                  opacity: isToday ? 1 : 0.55,
+                  transition: "height 0.6s ease" }} />
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+          <span style={{ fontSize: 9, color: C.textFaint }}>14 days ago</span>
+          <span style={{ fontSize: 9, color: C.accent }}>Today</span>
+        </div>
+      </div>
+
+      {/* Stats grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        {[
+          { label: "This Month", value: fmt(monthNet), color: monthNet < 0 ? C.rose : C.teal, glow: monthNet < 0 ? C.roseGlow : C.tealGlow },
+          { label: "All Time", value: fmt(allTime), color: allTime < 0 ? C.rose : C.accent, glow: allTime < 0 ? C.roseGlow : C.accentGlow },
+          { label: "Transactions", value: entries.length, color: C.violet, glow: C.violetGlow },
+          { label: "Avg / Day (wk)", value: fmt(thisWeekNet / Math.max(1, new Date(now).getDay() + 1)), color: C.textMuted, glow: "none" },
+        ].map(({ label, value, color, glow }) => (
+          <div key={label} style={{ ...glass, borderRadius: 16, padding: "14px 16px" }}>
+            <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.1em",
+              textTransform: "uppercase", marginBottom: 6 }}>{label}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color,
+              textShadow: glow !== "none" ? `0 0 14px ${glow}` : "none",
+              letterSpacing: "-0.01em" }}>{value}</div>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-// ─── EditEntryModal ──────────────────────────────────────────────────────────
+// ─── PIN Lock ─────────────────────────────────────────────────────────────────
+const CORRECT_PIN = "0204";
+
+function PinLock({ onUnlock }) {
+  const [digits, setDigits] = useState([]);
+  const [shake, setShake] = useState(false);
+
+  const press = d => {
+    if (digits.length >= 4) return;
+    const next = [...digits, d];
+    setDigits(next);
+    if (next.length === 4) {
+      if (next.join("") === CORRECT_PIN) {
+        sessionStorage.setItem("kb_unlocked", "1");
+        onUnlock();
+      } else {
+        setShake(true);
+        setTimeout(() => { setShake(false); setDigits([]); }, 600);
+      }
+    }
+  };
+
+  const keys = [1,2,3,4,5,6,7,8,9,null,0,"del"];
+
+  return (
+    <>
+      <WaveBackground />
+      <div style={{ position: "fixed", inset: 0, zIndex: 9999,
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+        fontFamily: "'Inter','Segoe UI',sans-serif", gap: 48 }}>
+
+        <div style={{ fontSize: 11, color: C.textMuted, letterSpacing: "0.22em", textTransform: "uppercase", fontWeight: 500 }}>
+          Kingdom Builder
+        </div>
+
+        <div style={{ display: "flex", gap: 16, alignItems: "center",
+          animation: shake ? "shake 0.5s ease" : "none" }}>
+          {[0,1,2,3].map(i => (
+            <div key={i} style={{ width: 13, height: 13, borderRadius: "50%",
+              background: i < digits.length ? C.accent : "transparent",
+              border: `2px solid ${i < digits.length ? C.accent : C.textFaint}`,
+              boxShadow: i < digits.length ? `0 0 12px ${C.accentGlow}` : "none",
+              transition: "all 0.12s ease" }} />
+          ))}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3,72px)", gap: 12 }}>
+          {keys.map((k, i) => {
+            if (k === null) return <div key={i} />;
+            const isDel = k === "del";
+            return (
+              <button key={i} className="wm-btn"
+                onPointerDown={() => isDel ? setDigits(p => p.slice(0, -1)) : press(k)}
+                style={{ width: 72, height: 72, borderRadius: "50%",
+                  background: isDel ? "transparent" :
+                    "linear-gradient(135deg,rgba(11,18,36,0.9),rgba(15,24,48,0.8))",
+                  border: isDel ? "none" : `1px solid ${C.border2}`,
+                  color: isDel ? C.textFaint : C.text,
+                  fontSize: isDel ? 20 : 26, fontWeight: 500, cursor: "pointer",
+                  fontFamily: "'Inter','Segoe UI',sans-serif",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  boxShadow: isDel ? "none" : `0 4px 20px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)`,
+                  userSelect: "none" }}>
+                {isDel ? "⌫" : k}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Edit Entry Modal ─────────────────────────────────────────────────────────
 function EditEntryModal({ entry, onSave, onDelete, onClose }) {
-  const t = useTheme();
-  const s = useStyles();
   const [amount, setAmount] = useState(String(Math.abs(Number(entry.change))));
   const [note, setNote] = useState(entry.note || "");
   const [saving, setSaving] = useState(false);
@@ -584,307 +1295,72 @@ function EditEntryModal({ entry, onSave, onDelete, onClose }) {
     setSaving(false); onClose();
   };
 
+  const inp = {
+    background: "rgba(255,255,255,0.05)", border: `1px solid ${C.border}`,
+    borderRadius: 14, color: C.text, outline: "none", width: "100%",
+    fontFamily: "'Inter','Segoe UI',sans-serif",
+  };
+
   return (
     <div onPointerDown={e => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: "fixed", inset: 0, background: t.modalBg, zIndex: 500,
-        display: "flex", alignItems: "flex-end", justifyContent: "center",
-        backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
-      <div className="kb-slide-up"
-        style={{ width: "100%", maxWidth: 480, background: t.surface,
-          borderRadius: `${t.cardRadius*1.2}px ${t.cardRadius*1.2}px 0 0`,
-          padding: "20px 20px 40px",
-          border: `1px solid ${t.border}`, borderBottom: "none",
-          boxShadow: t.shadow2,
-          display: "flex", flexDirection: "column", gap: 12 }}>
+      style={{ position: "fixed", inset: 0, zIndex: 500,
+        background: "rgba(0,0,0,0.7)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+        display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div className="wm-slide"
+        style={{ width: "100%", maxWidth: 480,
+          background: "linear-gradient(135deg,rgba(11,18,36,0.97) 0%,rgba(18,28,58,0.95) 100%)",
+          borderRadius: "26px 26px 0 0", padding: "20px 20px 44px",
+          border: `1px solid ${C.border2}`, borderBottom: "none",
+          boxShadow: `0 -8px 60px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05)`,
+          display: "flex", flexDirection: "column", gap: 12,
+          fontFamily: "'Inter','Segoe UI',sans-serif" }}>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-          <span style={{ fontSize: 11, color: t.textMuted, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600 }}>
-            Edit Transaction
-          </span>
+          <span style={{ fontSize: 11, color: C.textMuted, letterSpacing: "0.12em",
+            textTransform: "uppercase", fontWeight: 600 }}>Edit Transaction</span>
           <button onPointerDown={onClose}
-            style={{ background: "none", border: "none", color: t.textFaint, fontSize: 22, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
+            style={{ background: "none", border: "none", color: C.textFaint, fontSize: 22,
+              cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
         </div>
 
-        <div style={{ fontSize: 11, color: t.textFaint }}>
-          {entryDate(entry).toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"})}
-          {" · "}
-          {entryDate(entry).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}
+        <div style={{ fontSize: 11, color: C.textFaint }}>
+          {entryDate(entry).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+          {" · "}{entryDate(entry).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
         </div>
 
-        <input style={{ ...s.input }} type="number" inputMode="decimal"
-          placeholder="0.00" value={amount} min="0" disabled={saving}
+        <input style={{ ...inp, fontSize: 20, padding: "12px 16px", fontWeight: 700 }}
+          type="number" inputMode="decimal" placeholder="0.00"
+          value={amount} min="0" disabled={saving}
           onChange={e => setAmount(e.target.value)} />
 
-        <input style={{ ...s.input, ...s.noteInput }} type="text"
-          placeholder="Note (optional)" value={note} maxLength={80} disabled={saving}
+        <input style={{ ...inp, fontSize: 14, padding: "9px 16px", color: C.textMuted }}
+          type="text" placeholder="Note (optional)" value={note} maxLength={80} disabled={saving}
           onChange={e => setNote(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter") handleSave(); }} />
 
         <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-          <button className="kb-btn" onPointerDown={handleSave} disabled={saving}
-            style={{ ...s.btn, ...(isNeg ? s.btnSub : s.btnAdd), opacity: saving ? 0.5 : 1 }}>
-            Save
-          </button>
-          <button className="kb-btn" onPointerDown={handleDelete} disabled={saving}
-            style={{ flex: "none", border: `1px solid ${t.negativeSoft}`, borderRadius: t.btnRadius,
-              fontSize: 15, fontWeight: 600, padding: "13px 20px", cursor: saving ? "default" : "pointer",
-              background: "transparent", color: t.negative, opacity: saving ? 0.5 : 1,
-              fontFamily: "'Inter','Segoe UI',sans-serif" }}>
-            Delete
-          </button>
+          <button className="wm-btn" onPointerDown={handleSave} disabled={saving}
+            style={{ flex: 1, border: `1px solid ${isNeg ? "rgba(255,107,138,0.25)" : "rgba(88,245,195,0.25)"}`,
+              borderRadius: C.btnRadius,
+              background: isNeg ? C.roseSoft : C.tealSoft,
+              color: isNeg ? C.rose : C.teal, fontSize: 16, fontWeight: 700, padding: "13px 0",
+              opacity: saving ? 0.4 : 1, fontFamily: "'Inter','Segoe UI',sans-serif" }}>Save</button>
+          <button className="wm-btn" onPointerDown={handleDelete} disabled={saving}
+            style={{ flex: "none", border: `1px solid rgba(255,107,138,0.2)`,
+              borderRadius: C.btnRadius, background: "transparent",
+              color: C.rose, fontSize: 15, fontWeight: 600, padding: "13px 20px",
+              opacity: saving ? 0.4 : 1, cursor: "pointer",
+              fontFamily: "'Inter','Segoe UI',sans-serif" }}>Delete</button>
         </div>
       </div>
     </div>
   );
 }
 
-// ─── CalendarView ─────────────────────────────────────────────────────────────
-function CalendarView({ entries, now }) {
-  const t = useTheme();
-  const s = useStyles();
-  const [subs, setSubs] = useState([]);
-  const [calLoading, setCalLoading] = useState(true);
-  const [selectedDay, setSelectedDay] = useState(null);
-  const [subName, setSubName] = useState("");
-  const [subAmount, setSubAmount] = useState("");
-  const [subDay, setSubDay] = useState("");
-  const [subSaving, setSubSaving] = useState(false);
-
-  const todayDate = now.getDate();
-
-  useEffect(() => { fetchSubs(); }, []);
-
-  const fetchSubs = async () => {
-    setCalLoading(true);
-    const { data } = await supabase.from("subscriptions").select("*").order("day_of_month",{ascending:true});
-    if (data) setSubs(data);
-    setCalLoading(false);
-  };
-
-  const runAutoDeductions = async (subsToCheck) => {
-    const todayNum = now.getDate();
-    const due = subsToCheck.filter(s2 => s2.day_of_month === todayNum);
-    if (!due.length) return;
-    const todayStr = now.toLocaleDateString("en-CA");
-    const { data: todayEntries } = await supabase.from("money_entries").select("*")
-      .gte("ts",`${todayStr}T00:00:00`).lte("ts",`${todayStr}T23:59:59`);
-    for (const sub of due) {
-      const already = (todayEntries||[]).some(e => e.note === sub.name && Number(e.change) === -Math.abs(Number(sub.amount)));
-      if (!already) await supabase.from("money_entries").insert({
-        change: -Math.abs(Number(sub.amount)), note: sub.name,
-        ts: new Date().toISOString(), created_at: new Date().toISOString(),
-      });
-    }
-  };
-
-  useEffect(() => { if (!calLoading && subs.length > 0) runAutoDeductions(subs); }, [calLoading]);
-
-  const addSub = async () => {
-    const name = subName.trim(), amount = parseFloat(subAmount), day = parseInt(subDay,10);
-    if (!name || isNaN(amount) || amount <= 0 || isNaN(day) || day < 1 || day > 31) return;
-    setSubSaving(true);
-    const { data } = await supabase.from("subscriptions").insert({ name, amount, day_of_month: day }).select().single();
-    if (data) {
-      const newSubs = [...subs, data].sort((a,b) => a.day_of_month - b.day_of_month);
-      setSubs(newSubs);
-      if (day === now.getDate()) {
-        const todayStr = now.toLocaleDateString("en-CA");
-        const { data: te } = await supabase.from("money_entries").select("*")
-          .gte("ts",`${todayStr}T00:00:00`).lte("ts",`${todayStr}T23:59:59`);
-        const already = (te||[]).some(e => e.note === name && Number(e.change) === -Math.abs(amount));
-        if (!already) await supabase.from("money_entries").insert({
-          change: -Math.abs(amount), note: name, ts: new Date().toISOString(), created_at: new Date().toISOString(),
-        });
-      }
-    }
-    setSubName(""); setSubAmount(""); setSubDay(""); setSubSaving(false);
-  };
-
-  const deleteSub = async id => {
-    await supabase.from("subscriptions").delete().eq("id",id);
-    setSubs(prev => prev.filter(s2 => s2.id !== id));
-    if (selectedDay !== null) {
-      const remaining = subs.filter(s2 => s2.id !== id && s2.day_of_month === selectedDay);
-      if (!remaining.length) setSelectedDay(null);
-    }
-  };
-
-  const year = now.getFullYear(), month = now.getMonth();
-  const firstDow = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month+1, 0).getDate();
-
-  const subsByDay = {};
-  subs.forEach(s2 => {
-    const d = s2.day_of_month;
-    if (!subsByDay[d]) subsByDay[d] = [];
-    subsByDay[d].push(s2);
-  });
-
-  const dotLayouts = {
-    1:[[0,0]], 2:[[-3,0],[3,0]], 3:[[-4,0],[0,0],[4,0]],
-    4:[[-4,-2],[0,-2],[4,-2],[0,2]], 5:[[-4,-2],[0,-2],[4,-2],[-2,2],[2,2]],
-    6:[[-4,-2],[0,-2],[4,-2],[-4,2],[0,2],[4,2]],
-  };
-
-  const selectedSubs = selectedDay !== null ? (subsByDay[selectedDay] || []) : [];
-  const upcomingTotal = subs.filter(s2 => s2.day_of_month >= todayDate).reduce((sum,s2) => sum+Number(s2.amount),0);
-  const monthLabel = now.toLocaleDateString("en-US",{month:"long",year:"numeric"});
-  const cells = [];
-  for (let i = 0; i < firstDow; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-
-  return (
-    <div style={{ ...s.root, paddingBottom: 90 }}>
-      <div style={s.card}>
-
-        <div style={{ fontSize: 13, color: t.textMuted, fontWeight: 500, letterSpacing: "0.01em", marginBottom: 4 }}>
-          {monthLabel}
-        </div>
-
-        {/* Calendar grid */}
-        <div style={{ background: t.surface, borderRadius: t.cardRadius, padding: "12px 10px 10px",
-          border: `1px solid ${t.border}`, boxShadow: t.shadow }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", marginBottom: 6 }}>
-            {["S","M","T","W","T","F","S"].map((d,i) => (
-              <div key={i} style={{ textAlign: "center", fontSize: 10, color: t.textFaint, fontWeight: 600, letterSpacing: "0.08em" }}>{d}</div>
-            ))}
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: "4px 2px" }}>
-            {cells.map((d,i) => {
-              if (d === null) return <div key={`e${i}`} />;
-              const isPast = d < todayDate, isToday = d === todayDate;
-              const isSelected = selectedDay === d;
-              const dotList = subsByDay[d] || [];
-              const dotCount = Math.min(dotList.length, 6);
-              const layout = dotLayouts[dotCount] || [];
-              return (
-                <div key={d} onClick={() => setSelectedDay(isSelected ? null : d)}
-                  style={{ position: "relative", display: "flex", flexDirection: "column",
-                    alignItems: "center", justifyContent: "center", height: 40, borderRadius: t.selRadius,
-                    cursor: dotCount > 0 ? "pointer" : "default",
-                    background: isSelected ? t.accentSoft : "transparent",
-                    border: isToday ? `1px solid ${t.accent}` : isSelected ? `1px solid ${t.border2}` : "1px solid transparent",
-                    transition: "background 0.15s ease",
-                  }}>
-                  <span style={{ fontSize: 13, fontWeight: isToday ? 700 : 400,
-                    color: isToday ? t.accent : isPast ? t.textFaint : t.text,
-                    lineHeight: 1, marginBottom: dotCount > 0 ? 2 : 0 }}>
-                    {d}
-                  </span>
-                  {dotCount > 0 && (
-                    <div style={{ position: "relative", height: 8, width: 24 }}>
-                      {layout.map(([ox,oy],di) => (
-                        <div key={di} style={{ position: "absolute", width: 4, height: 4,
-                          borderRadius: "50%", background: t.billingAccent,
-                          left: "50%", top: "50%",
-                          transform: `translate(calc(-50% + ${ox}px),calc(-50% + ${oy}px))` }} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Selected day panel */}
-        {selectedDay !== null && (
-          <div className="kb-fade-in" style={{ background: t.surface2, border: `1px solid ${t.border}`,
-            borderRadius: t.cardRadius, padding: "12px 14px", boxShadow: t.shadow }}>
-            <div style={{ fontSize: 11, color: t.textMuted, letterSpacing: "0.1em", textTransform: "uppercase",
-              marginBottom: 8, fontWeight: 500 }}>
-              {now.toLocaleDateString("en-US",{month:"long"})} {selectedDay}
-            </div>
-            {selectedSubs.length === 0 ? (
-              <div style={{ fontSize: 13, color: t.textFaint }}>No subscriptions on this day</div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {selectedSubs.map(sub => (
-                  <div key={sub.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                      <span style={{ fontSize: 14, color: t.text }}>{sub.name}</span>
-                      <span style={{ fontSize: 12, color: t.billingAccent }}>{fmt(sub.amount)}/mo</span>
-                    </div>
-                    <button onClick={() => deleteSub(sub.id)}
-                      style={{ background: "none", border: "none", color: t.deleteColor, fontSize: 18, cursor: "pointer", padding: "4px 6px", lineHeight: 1 }}>×</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Upcoming total */}
-        {subs.length > 0 && (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-            background: t.surface, borderRadius: t.selRadius, padding: "10px 14px",
-            border: `1px solid ${t.border}`, boxShadow: t.shadow }}>
-            <span style={{ fontSize: 11, color: t.textMuted, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 500 }}>
-              Upcoming this month
-            </span>
-            <span style={{ fontSize: 15, fontWeight: 600, color: t.billingAccent }}>{fmt(upcomingTotal)}</span>
-          </div>
-        )}
-
-        {/* Add subscription */}
-        <div style={{ background: t.surface, borderRadius: t.cardRadius, padding: "14px",
-          display: "flex", flexDirection: "column", gap: 8, border: `1px solid ${t.border}`, boxShadow: t.shadow }}>
-          <div style={s.sectionLabel}>Add Subscription</div>
-          <input style={{ ...s.input, fontSize: 14 }} type="text" placeholder="Name (e.g. Netflix)"
-            value={subName} maxLength={60} disabled={subSaving} onChange={e => setSubName(e.target.value)} />
-          <div style={{ display: "flex", gap: 8 }}>
-            <input style={{ ...s.input, fontSize: 14, flex: 2 }} type="number" inputMode="decimal"
-              placeholder="Amount" value={subAmount} min="0" disabled={subSaving} onChange={e => setSubAmount(e.target.value)} />
-            <input style={{ ...s.input, fontSize: 14, flex: 1 }} type="number" inputMode="numeric"
-              placeholder="Day" value={subDay} min="1" max="31" disabled={subSaving} onChange={e => setSubDay(e.target.value)} />
-          </div>
-          <button className="kb-btn" onClick={addSub} disabled={subSaving}
-            style={{ ...s.btn, background: t.accentSoft, color: t.accent, fontSize: 14,
-              padding: "10px 0", opacity: subSaving ? 0.5 : 1 }}>
-            + Add Subscription
-          </button>
-        </div>
-
-        {/* Active subscriptions */}
-        {!calLoading && subs.length > 0 && (
-          <div>
-            <div style={s.sectionLabel}>Active Subscriptions</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              {subs.map(sub => (
-                <div key={sub.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-                  background: t.surface, borderRadius: t.selRadius, padding: "9px 14px",
-                  border: `1px solid ${t.border}` }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ fontSize: 11, color: t.billingAccent, fontWeight: 600, minWidth: 24, textAlign: "right" }}>
-                      {sub.day_of_month}
-                    </span>
-                    <span style={{ fontSize: 14, color: t.text }}>{sub.name}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: t.negative }}>-{fmt(sub.amount)}</span>
-                    <button onClick={() => deleteSub(sub.id)}
-                      style={{ background: "none", border: "none", color: t.deleteColor, fontSize: 18, cursor: "pointer", padding: "4px 6px", lineHeight: 1 }}>×</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {calLoading && (
-          <div style={{ fontSize: 13, color: t.textFaint, textAlign: "center", padding: "20px 0" }}>Loading…</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── EditCountdownModal ───────────────────────────────────────────────────────
+// ─── Edit Countdown Modal ─────────────────────────────────────────────────────
 function EditCountdownModal({ countdown, onSave, onClose }) {
-  const t = useTheme();
-  const s = useStyles();
   const existing = new Date(countdown.due_at);
-  const pad2 = n => String(n).padStart(2,"0");
+  const pad2 = n => String(n).padStart(2, "0");
   const [label, setLabel] = useState(countdown.label);
   const [dueDate, setDueDate] = useState(`${existing.getFullYear()}-${pad2(existing.getMonth()+1)}-${pad2(existing.getDate())}`);
   const [dueTime, setDueTime] = useState(`${pad2(existing.getHours())}:${pad2(existing.getMinutes())}`);
@@ -893,316 +1369,68 @@ function EditCountdownModal({ countdown, onSave, onClose }) {
   const handleSave = async () => {
     const trimLabel = label.trim();
     if (!trimLabel || !dueDate) return;
-    const due = new Date(`${dueDate}T${dueTime||"00:00"}:00`);
+    const due = new Date(`${dueDate}T${dueTime || "00:00"}:00`);
     if (isNaN(due.getTime())) return;
     setSaving(true);
     await onSave(countdown.id, trimLabel, due.toISOString());
     setSaving(false); onClose();
   };
 
+  const inp = {
+    background: "rgba(255,255,255,0.05)", border: `1px solid ${C.border}`,
+    borderRadius: 13, color: C.text, fontSize: 14, padding: "10px 13px", outline: "none",
+    fontFamily: "'Inter','Segoe UI',sans-serif",
+  };
+
   return (
     <div onPointerDown={e => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: "fixed", inset: 0, background: t.modalBg, zIndex: 500,
-        display: "flex", alignItems: "flex-end", justifyContent: "center",
-        backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
-      <div className="kb-slide-up"
-        style={{ width: "100%", maxWidth: 480, background: t.surface,
-          borderRadius: `${t.cardRadius*1.2}px ${t.cardRadius*1.2}px 0 0`,
-          padding: "20px 20px 40px",
-          border: `1px solid ${t.border}`, borderBottom: "none",
-          boxShadow: t.shadow2,
-          display: "flex", flexDirection: "column", gap: 12 }}>
+      style={{ position: "fixed", inset: 0, zIndex: 500,
+        background: "rgba(0,0,0,0.7)", backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+        display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+      <div className="wm-slide"
+        style={{ width: "100%", maxWidth: 480,
+          background: "linear-gradient(135deg,rgba(11,18,36,0.97) 0%,rgba(18,28,58,0.95) 100%)",
+          borderRadius: "26px 26px 0 0", padding: "20px 20px 44px",
+          border: `1px solid ${C.border2}`, borderBottom: "none",
+          boxShadow: "0 -8px 60px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05)",
+          display: "flex", flexDirection: "column", gap: 12,
+          fontFamily: "'Inter','Segoe UI',sans-serif" }}>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-          <span style={{ fontSize: 11, color: t.textMuted, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600 }}>
-            Edit Countdown
-          </span>
+          <span style={{ fontSize: 11, color: C.textMuted, letterSpacing: "0.12em",
+            textTransform: "uppercase", fontWeight: 600 }}>Edit Countdown</span>
           <button onPointerDown={onClose}
-            style={{ background: "none", border: "none", color: t.textFaint, fontSize: 22, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
+            style={{ background: "none", border: "none", color: C.textFaint, fontSize: 22,
+              cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
         </div>
 
-        <input style={{ ...s.input, fontSize: 15 }} type="text" placeholder="Event name"
-          value={label} maxLength={80} disabled={saving} onChange={e => setLabel(e.target.value)} />
+        <input style={{ ...inp, width: "100%" }} type="text" placeholder="Event name"
+          value={label} maxLength={80} disabled={saving}
+          onChange={e => setLabel(e.target.value)} />
 
         <div style={{ display: "flex", gap: 8 }}>
-          <input style={{ ...s.input, fontSize: 14, flex: 3 }} type="date"
-            value={dueDate} disabled={saving} onChange={e => setDueDate(e.target.value)} />
-          <input style={{ ...s.input, fontSize: 14, flex: 2 }} type="time"
-            value={dueTime} disabled={saving} onChange={e => setDueTime(e.target.value)} />
+          <input style={{ ...inp, flex: 3 }} type="date" value={dueDate}
+            disabled={saving} onChange={e => setDueDate(e.target.value)} />
+          <input style={{ ...inp, flex: 2 }} type="time" value={dueTime}
+            disabled={saving} onChange={e => setDueTime(e.target.value)} />
         </div>
 
-        <button className="kb-btn" onPointerDown={handleSave}
+        <button className="wm-btn" onPointerDown={handleSave}
           disabled={saving || !label.trim() || !dueDate}
-          style={{ ...s.btn, background: t.accentSoft, color: t.countdownAccent, fontSize: 15,
-            opacity: (saving || !label.trim() || !dueDate) ? 0.4 : 1 }}>
-          Save
-        </button>
+          style={{ border: `1px solid ${C.border2}`, borderRadius: C.btnRadius,
+            background: `linear-gradient(135deg,${C.accentSoft},${C.violetSoft})`,
+            color: C.accent, fontSize: 15, fontWeight: 600, padding: "13px 0",
+            opacity: (saving || !label.trim() || !dueDate) ? 0.4 : 1,
+            fontFamily: "'Inter','Segoe UI',sans-serif" }}>Save</button>
       </div>
     </div>
   );
 }
-
-// ─── CountdownView ────────────────────────────────────────────────────────────
-function CountdownView() {
-  const t = useTheme();
-  const s = useStyles();
-  const [countdowns, setCountdowns] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [label, setLabel] = useState("");
-  const [dueDate, setDueDate] = useState("");
-  const [dueTime, setDueTime] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [tick, setTick] = useState(0);
-  const [editingCountdown, setEditingCountdown] = useState(null);
-
-  useEffect(() => {
-    const id = setInterval(() => setTick(x => x+1), 60000);
-    return () => clearInterval(id);
-  }, []);
-
-  useEffect(() => { fetchCountdowns(); }, []);
-
-  const fetchCountdowns = async () => {
-    setLoading(true);
-    const { data } = await supabase.from("countdowns").select("*").order("due_at",{ascending:true});
-    if (data) setCountdowns(data);
-    setLoading(false);
-  };
-
-  const addCountdown = async () => {
-    const trimLabel = label.trim();
-    if (!trimLabel || !dueDate) return;
-    const due = new Date(`${dueDate}T${dueTime||"00:00"}:00`);
-    if (isNaN(due.getTime())) return;
-    setSaving(true);
-    const { data, error } = await supabase.from("countdowns")
-      .insert({ label: trimLabel, due_at: due.toISOString() }).select().single();
-    if (data) {
-      setCountdowns(prev => [...prev, data].sort((a,b) => new Date(a.due_at)-new Date(b.due_at)));
-      setLabel(""); setDueDate(""); setDueTime("");
-    } else if (error) {
-      alert("Could not save. Make sure the 'countdowns' table exists in Supabase.");
-    }
-    setSaving(false);
-  };
-
-  const deleteCountdown = async id => {
-    setCountdowns(prev => prev.filter(c => c.id !== id));
-    await supabase.from("countdowns").delete().eq("id",id);
-  };
-
-  const updateCountdown = async (id, newLabel, newDueAt) => {
-    setCountdowns(prev =>
-      prev.map(c => c.id === id ? {...c, label: newLabel, due_at: newDueAt} : c)
-        .sort((a,b) => new Date(a.due_at)-new Date(b.due_at))
-    );
-    await supabase.from("countdowns").update({ label: newLabel, due_at: newDueAt }).eq("id",id);
-  };
-
-  const formatRemaining = due_at => {
-    const diff = new Date(due_at) - new Date();
-    if (diff <= 0) return { expired: true };
-    const totalMins = Math.floor(diff / 60000);
-    return {
-      expired: false,
-      days: Math.floor(totalMins / 1440),
-      hours: Math.floor((totalMins % 1440) / 60),
-      mins: totalMins % 60,
-    };
-  };
-
-  const fmtDueDate = due_at => {
-    const d = new Date(due_at);
-    return d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) +
-      " at " + d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
-  };
-
-  const totalMs = (due_at, created_at) => {
-    const c = created_at ? new Date(created_at) : new Date(new Date(due_at) - 30*24*60*60*1000);
-    return Math.max(1, new Date(due_at) - c);
-  };
-
-  return (
-    <>
-    {editingCountdown && (
-      <EditCountdownModal countdown={editingCountdown} onSave={updateCountdown} onClose={() => setEditingCountdown(null)} />
-    )}
-    <div style={{ ...s.root, paddingBottom: 90 }}>
-      <div style={s.card}>
-
-        <div style={{ fontSize: 13, color: t.textMuted, fontWeight: 500, letterSpacing: "0.01em", marginBottom: 4 }}>
-          Countdowns
-        </div>
-
-        {/* Add form */}
-        <div style={{ background: t.surface, borderRadius: t.cardRadius, padding: "14px",
-          display: "flex", flexDirection: "column", gap: 8,
-          border: `1px solid ${t.border}`, boxShadow: t.shadow }}>
-          <div style={s.sectionLabel}>New Countdown</div>
-          <input style={{ ...s.input, fontSize: 14 }} type="text"
-            placeholder="Event name (e.g. Jiu Jitsu Competition)"
-            value={label} maxLength={80} disabled={saving}
-            onChange={e => setLabel(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") addCountdown(); }} />
-          <div style={{ display: "flex", gap: 8 }}>
-            <input style={{ ...s.input, fontSize: 14, flex: 3 }} type="date"
-              value={dueDate} disabled={saving} onChange={e => setDueDate(e.target.value)} />
-            <input style={{ ...s.input, fontSize: 14, flex: 2 }} type="time"
-              value={dueTime} disabled={saving} onChange={e => setDueTime(e.target.value)} />
-          </div>
-          <button className="kb-btn" onClick={addCountdown}
-            disabled={saving || !label.trim() || !dueDate}
-            style={{ ...s.btn, background: t.accentSoft, color: t.countdownAccent, fontSize: 14,
-              padding: "10px 0", opacity: (saving || !label.trim() || !dueDate) ? 0.4 : 1 }}>
-            + Add Countdown
-          </button>
-        </div>
-
-        {/* Cards */}
-        {loading ? (
-          <div style={{ fontSize: 13, color: t.textFaint, textAlign: "center", padding: "20px 0" }}>Loading…</div>
-        ) : countdowns.length === 0 ? (
-          <div style={{ fontSize: 13, color: t.textFaint, textAlign: "center", padding: "20px 0" }}>No countdowns yet</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {countdowns.map(c => {
-              const rem = formatRemaining(c.due_at);
-              const pct = rem.expired ? 1 : Math.max(0, 1 - (new Date(c.due_at)-new Date()) / totalMs(c.due_at, c.created_at));
-
-              return (
-                <div key={c.id} className="kb-fade-in"
-                  onClick={() => setEditingCountdown(c)}
-                  style={{ background: t.surface, border: `1px solid ${t.border}`,
-                    borderRadius: t.cardRadius, padding: "16px 14px 14px",
-                    cursor: "pointer", boxShadow: t.shadow,
-                    transition: "box-shadow 0.2s ease" }}>
-
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-                    <span style={{ fontSize: 15, fontWeight: 600, color: t.text, flex: 1, paddingRight: 8 }}>
-                      {c.label}
-                    </span>
-                    <button onClick={e => { e.stopPropagation(); deleteCountdown(c.id); }}
-                      style={{ background: "none", border: "none", color: t.deleteColor, fontSize: 18,
-                        cursor: "pointer", padding: "0 0 0 6px", lineHeight: 1, flexShrink: 0 }}>×</button>
-                  </div>
-
-                  <div style={{ fontSize: 11, color: t.textFaint, marginBottom: 12 }}>{fmtDueDate(c.due_at)}</div>
-
-                  {rem.expired ? (
-                    <div style={{ fontSize: 13, color: t.textFaint, fontStyle: "italic" }}>Expired</div>
-                  ) : (
-                    <>
-                      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-                        {[{val:rem.days,unit:"days"},{val:rem.hours,unit:"hrs"},{val:rem.mins,unit:"min"}].map(({val,unit}) => (
-                          <div key={unit} style={{ flex: 1, background: t.surface2, borderRadius: t.selRadius,
-                            padding: "10px 0", textAlign: "center", border: `1px solid ${t.border}` }}>
-                            <div style={{ fontSize: 24, fontWeight: 700, color: t.countdownAccent,
-                              fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>
-                              {val}
-                            </div>
-                            <div style={{ fontSize: 9, color: t.textFaint, letterSpacing: "0.1em",
-                              textTransform: "uppercase", marginTop: 2 }}>{unit}</div>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Progress bar */}
-                      <div style={{ height: 3, background: t.border2, borderRadius: 2, overflow: "hidden" }}>
-                        <div style={{ height: "100%", width: `${pct*100}%`,
-                          background: t.countdownAccent, borderRadius: 2,
-                          transition: "width 0.8s ease" }} />
-                      </div>
-                    </>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-    </>
-  );
-}
-
-// ─── PinLock ──────────────────────────────────────────────────────────────────
-const CORRECT_PIN = "0204";
-function PinLock({ onUnlock }) {
-  const t = useTheme();
-  const [digits, setDigits] = useState([]);
-  const [shake, setShake] = useState(false);
-
-  const press = d => {
-    if (digits.length >= 4) return;
-    const next = [...digits, d];
-    setDigits(next);
-    if (next.length === 4) {
-      if (next.join("") === CORRECT_PIN) {
-        sessionStorage.setItem("kb_unlocked","1");
-        onUnlock();
-      } else {
-        setShake(true);
-        setTimeout(() => { setShake(false); setDigits([]); }, 600);
-      }
-    }
-  };
-
-  const keys = [1,2,3,4,5,6,7,8,9,null,0,"del"];
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: t.bgGradient, zIndex: 9999,
-      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-      fontFamily: "'Inter','Segoe UI',sans-serif", gap: 48 }}>
-
-      <div style={{ fontSize: 12, color: t.textMuted, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: 500 }}>
-        Kingdom Builder
-      </div>
-
-      <div style={{ display: "flex", gap: 16, alignItems: "center",
-        animation: shake ? "kb-shake 0.5s ease" : "none" }}>
-        {[0,1,2,3].map(i => (
-          <div key={i} style={{ width: 14, height: 14, borderRadius: "50%",
-            background: i < digits.length ? t.pinDot : t.pinDotEmpty,
-            border: `2px solid ${i < digits.length ? t.pinDot : t.pinDotBorder}`,
-            transition: "background 0.1s, border-color 0.1s",
-            boxShadow: i < digits.length ? `0 0 8px ${t.pinDot}60` : "none",
-          }} />
-        ))}
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,72px)", gap: 12 }}>
-        {keys.map((k,i) => {
-          if (k === null) return <div key={i} />;
-          const isDel = k === "del";
-          return (
-            <button key={i} className="kb-btn" onPointerDown={() => isDel ? setDigits(p => p.slice(0,-1)) : press(k)}
-              style={{ width: 72, height: 72, borderRadius: "50%",
-                background: isDel ? "transparent" : t.surface,
-                border: isDel ? "none" : `1px solid ${t.border2}`,
-                color: isDel ? t.textFaint : t.text,
-                fontSize: isDel ? 20 : 26, fontWeight: 500,
-                cursor: "pointer", fontFamily: "'Inter','Segoe UI',sans-serif",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                boxShadow: isDel ? "none" : t.shadow,
-                userSelect: "none",
-              }}>
-              {isDel ? "⌫" : k}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [themeId, setThemeId] = useState(() => localStorage.getItem("kb_theme") || "nightInk");
-  const theme = THEMES[themeId] || THEMES.nightInk;
-
   const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem("kb_unlocked") === "1");
-  const [activeTab, setActiveTab] = useState("balance");
+  const [activeTab, setActiveTab] = useState("home");
   const [entries, setEntries] = useState([]);
   const [balance, setBalance] = useState(0);
   const [amount, setAmount] = useState("");
@@ -1214,39 +1442,29 @@ export default function App() {
   const [now, setNow] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(() => new Date());
   const [editingEntry, setEditingEntry] = useState(null);
-  const toggleTheme = () => {
-    const next = themeId === "nightInk" ? "zenWhite" : "nightInk";
-    document.documentElement.classList.add("kb-theme-transition");
-    setTimeout(() => document.documentElement.classList.remove("kb-theme-transition"), 500);
-    setThemeId(next);
-    localStorage.setItem("kb_theme", next);
-  };
+
+  const weekSundayOf = d => { const s = new Date(d); s.setDate(d.getDate() - d.getDay()); s.setHours(0,0,0,0); return s; };
 
   useEffect(() => { fetchEntries(); }, []);
 
   useEffect(() => {
     let timer;
     const schedule = () => {
-      const n = new Date();
-      const midnight = new Date(n); midnight.setHours(24,0,0,0);
-      timer = setTimeout(() => { setNow(new Date()); setSelectedDay(new Date()); schedule(); }, midnight-n);
+      const n = new Date(), midnight = new Date(n); midnight.setHours(24,0,0,0);
+      timer = setTimeout(() => { setNow(new Date()); setSelectedDay(new Date()); schedule(); }, midnight - n);
     };
     schedule();
     return () => clearTimeout(timer);
   }, []);
 
-  const weekSundayOf = d => {
-    const s = new Date(d); s.setDate(d.getDate()-d.getDay()); s.setHours(0,0,0,0); return s;
-  };
-
   const fetchEntries = async () => {
     setLoading(true); setError(null);
-    const { data, error: err } = await supabase.from("money_entries").select("*").order("created_at",{ascending:false});
+    const { data, error: err } = await supabase.from("money_entries").select("*").order("created_at", { ascending: false });
     if (err) { setError(err.message); }
     else if (data) {
       setEntries(data);
       const ws = weekSundayOf(new Date());
-      setBalance(data.filter(e => entryDate(e) >= ws).reduce((sum,e) => sum+Number(e.change), 0));
+      setBalance(data.filter(e => entryDate(e) >= ws).reduce((s,e) => s + Number(e.change), 0));
     }
     setLoading(false);
   };
@@ -1255,227 +1473,78 @@ export default function App() {
     const val = parseFloat(amount);
     if (!val || isNaN(val) || val <= 0) return;
     setSaving(true); setError(null);
-    const targetDate = selectedDay || now;
-    const optimistic = { id: crypto.randomUUID(), change: sign*val, note: note.trim()||null,
-      ts: targetDate.toISOString(), created_at: targetDate.toISOString() };
-    setEntries(prev => [optimistic, ...prev]);
+    const target = selectedDay || now;
+    const opt = { id: crypto.randomUUID(), change: sign * val, note: note.trim() || null,
+      ts: target.toISOString(), created_at: target.toISOString() };
+    setEntries(prev => [opt, ...prev]);
     const ws = weekSundayOf(new Date());
-    if (new Date(optimistic.ts) >= ws) setBalance(prev => prev+optimistic.change);
+    if (new Date(opt.ts) >= ws) setBalance(prev => prev + opt.change);
     setAmount(""); setNote("");
     const { data, error: err } = await supabase.from("money_entries")
-      .insert({ change: optimistic.change, note: optimistic.note, ts: optimistic.ts, created_at: optimistic.created_at })
+      .insert({ change: opt.change, note: opt.note, ts: opt.ts, created_at: opt.created_at })
       .select().single();
-    if (err) setError("Not saved: "+err.message);
-    else if (data) setEntries(prev => prev.map(e => e.id===optimistic.id ? data : e));
+    if (err) setError("Not saved: " + err.message);
+    else if (data) setEntries(prev => prev.map(e => e.id === opt.id ? data : e));
     setSaving(false);
   };
 
   const reset = async () => {
     setSaving(true); setError(null);
     const { error: err } = await supabase.from("money_entries").delete()
-      .neq("id","00000000-0000-0000-0000-000000000000");
+      .neq("id", "00000000-0000-0000-0000-000000000000");
     if (err) setError(err.message);
     else { setEntries([]); setBalance(0); }
     setShowReset(false); setSaving(false);
   };
 
   const deleteEntry = async id => {
-    const target = entries.find(e => e.id===id);
+    const target = entries.find(e => e.id === id);
     if (!target) return;
-    setEntries(prev => prev.filter(e => e.id!==id));
+    setEntries(prev => prev.filter(e => e.id !== id));
     const ws = weekSundayOf(new Date());
-    if (entryDate(target) >= ws) setBalance(prev => prev-Number(target.change));
-    await supabase.from("money_entries").delete().eq("id",id);
+    if (entryDate(target) >= ws) setBalance(prev => prev - Number(target.change));
+    await supabase.from("money_entries").delete().eq("id", id);
   };
 
   const updateEntry = async (id, newChange, newNote) => {
     const ws = weekSundayOf(new Date());
-    const prev = entries.find(e => e.id===id);
+    const prev = entries.find(e => e.id === id);
     if (!prev) return;
-    setEntries(list => list.map(e => e.id===id ? {...e, change: newChange, note: newNote} : e));
-    if (entryDate(prev) >= ws) setBalance(b => b-Number(prev.change)+newChange);
-    await supabase.from("money_entries").update({ change: newChange, note: newNote }).eq("id",id);
+    setEntries(list => list.map(e => e.id === id ? { ...e, change: newChange, note: newNote } : e));
+    if (entryDate(prev) >= ws) setBalance(b => b - Number(prev.change) + newChange);
+    await supabase.from("money_entries").update({ change: newChange, note: newNote }).eq("id", id);
   };
 
   const handleKey = e => { if (e.key === "Enter") apply(1); };
 
-  if (!unlocked) {
-    return (
-      <ThemeContext.Provider value={theme}>
-        <style>{GLOBAL_CSS}</style>
-        <PinLock onUnlock={() => setUnlocked(true)} />
-      </ThemeContext.Provider>
-    );
-  }
+  if (!unlocked) return <PinLock onUnlock={() => setUnlocked(true)} />;
 
   return (
-    <ThemeContext.Provider value={theme}>
+    <>
       <style>{GLOBAL_CSS}</style>
+      <WaveBackground />
 
       {editingEntry && (
         <EditEntryModal entry={editingEntry} onSave={updateEntry} onDelete={deleteEntry}
           onClose={() => setEditingEntry(null)} />
       )}
 
-      {/* ── Balance Tab ── */}
-      {activeTab === "balance" && (
-        <BalanceTab
-          entries={entries} balance={balance} loading={loading} saving={saving}
+      {activeTab === "home" && (
+        <HomeTab entries={entries} balance={balance} loading={loading} saving={saving}
           error={error} now={now} selectedDay={selectedDay} setSelectedDay={setSelectedDay}
           amount={amount} setAmount={setAmount} note={note} setNote={setNote}
-          apply={apply} reset={reset} showReset={showReset} setShowReset={setShowReset}
-          deleteEntry={deleteEntry} setEditingEntry={setEditingEntry}
-          themeId={themeId} onToggleTheme={toggleTheme}
-          handleKey={handleKey}
-        />
+          apply={apply} deleteEntry={deleteEntry} setEditingEntry={setEditingEntry}
+          reset={reset} showReset={showReset} setShowReset={setShowReset}
+          handleKey={handleKey} />
       )}
+      {activeTab === "timeline" && (
+        <TimelineTab entries={entries} now={now} deleteEntry={deleteEntry} setEditingEntry={setEditingEntry} />
+      )}
+      {activeTab === "countdown" && <CountdownTab />}
+      {activeTab === "bills" && <BillsTab now={now} />}
+      {activeTab === "insights" && <InsightsTab entries={entries} now={now} />}
 
-      {activeTab === "calendar" && <CalendarView entries={entries} now={now} />}
-      {activeTab === "countdown" && <CountdownView />}
-
-      {/* ── Tab Bar ── */}
-      <TabBar activeTab={activeTab} setActiveTab={setActiveTab} />
-    </ThemeContext.Provider>
-  );
-}
-
-// ─── BalanceTab (extracted for clarity) ──────────────────────────────────────
-function BalanceTab({ entries, balance, loading, saving, error, now, selectedDay, setSelectedDay,
-  amount, setAmount, note, setNote, apply, reset, showReset, setShowReset,
-  deleteEntry, setEditingEntry, themeId, onToggleTheme, handleKey }) {
-  const t = useTheme();
-  const s = useStyles();
-
-  const displayDay = selectedDay || now;
-  const ds = new Date(displayDay); ds.setHours(0,0,0,0);
-  const de = new Date(displayDay); de.setHours(23,59,59,999);
-  const dayNet = entries
-    .filter(e => { const ts = entryDate(e); return ts >= ds && ts <= de; })
-    .reduce((sum,e) => sum+Number(e.change), 0);
-
-  return (
-    <div style={{ ...s.root, paddingBottom: 90 }}>
-      <div style={s.card}>
-        {error && <div style={s.errorBox}>{error}</div>}
-
-        {/* Date + day net + theme toggle */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div style={{ fontSize: 13, color: t.textMuted, fontWeight: 500, letterSpacing: "0.01em" }}>
-            {now.toLocaleDateString("en-US",{weekday:"long"})}
-            <span style={{ color: t.textFaint }}>
-              {" · "}{now.toLocaleDateString("en-US",{month:"short",day:"numeric"})}
-            </span>
-          </div>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-            {!loading && (
-              <div style={{ textAlign: "right" }}>
-                <div style={{ fontSize: 10, color: t.textFaint, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 2 }}>
-                  {displayDay.toLocaleDateString("en-US",{weekday:"long"})}
-                </div>
-                <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-0.02em",
-                  color: dayNet < 0 ? t.negative : t.positive }}>
-                  {dayNet > 0 ? "+" : ""}{fmt(dayNet)}
-                </div>
-              </div>
-            )}
-            <button className="kb-btn" onPointerDown={onToggleTheme}
-              title={themeId === "nightInk" ? "Switch to Zen White" : "Switch to Night Ink"}
-              style={{ background: "none", border: `1px solid ${t.border2}`, borderRadius: 20,
-                color: t.textFaint, fontSize: 14, cursor: "pointer", padding: "4px 8px",
-                lineHeight: 1, marginTop: 2, fontFamily: "sans-serif" }}>
-              {themeId === "nightInk" ? "◑" : "◐"}
-            </button>
-          </div>
-        </div>
-
-        {/* Balance */}
-        <div>
-          <div style={{ color: t.textFaint, fontSize: 10, letterSpacing: "0.14em",
-            textTransform: "uppercase", marginBottom: 4, fontWeight: 500 }}>
-            Balance
-          </div>
-          {loading ? (
-            <div style={{ fontSize: 48, fontWeight: 700, color: t.textFaint, lineHeight: 1,
-              marginBottom: 6, fontVariantNumeric: "tabular-nums" }}>—</div>
-          ) : (
-            <div style={{ fontSize: 48, fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1,
-              marginBottom: 6, fontVariantNumeric: "tabular-nums",
-              color: balance < 0 ? t.negative : t.text }}>
-              {fmt(balance)}
-            </div>
-          )}
-        </div>
-
-        {!loading && (
-          <WeeklyChart entries={entries} now={now} selectedDay={selectedDay} onSelectDay={setSelectedDay} />
-        )}
-
-        {/* Amount input */}
-        <input style={s.input} type="number" inputMode="decimal" placeholder="0.00"
-          value={amount} min="0" disabled={saving}
-          onChange={e => setAmount(e.target.value)} onKeyDown={handleKey} />
-        <input style={{ ...s.input, ...s.noteInput }} type="text" placeholder="Note (optional)"
-          value={note} maxLength={80} disabled={saving}
-          onChange={e => setNote(e.target.value)} onKeyDown={handleKey} />
-
-        <div style={{ display: "flex", gap: 10, marginTop: 2 }}>
-          <button className="kb-btn" style={{ ...s.btn, ...s.btnAdd, opacity: saving ? 0.5 : 1 }}
-            onClick={() => apply(1)} disabled={saving}>+ Add</button>
-          <button className="kb-btn" style={{ ...s.btn, ...s.btnSub, opacity: saving ? 0.5 : 1 }}
-            onClick={() => apply(-1)} disabled={saving}>− Subtract</button>
-        </div>
-
-        {!loading && entries.length > 0 && (
-          <div style={{ marginTop: 6 }}>
-            <div style={s.sectionLabel}>This Week</div>
-            <ThisWeekLog entries={entries} now={now} onDelete={deleteEntry} onEdit={setEditingEntry} />
-            <WeeklyLog entries={entries} now={now} onDelete={deleteEntry} onEdit={setEditingEntry} />
-          </div>
-        )}
-
-        <div style={{ marginTop: 8, display: "flex", justifyContent: "center" }}>
-          {!showReset ? (
-            <button style={s.resetBtn} onClick={() => setShowReset(true)}>Reset</button>
-          ) : (
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ color: t.textMuted, fontSize: 13 }}>Wipe all entries?</span>
-              <button className="kb-btn"
-                style={{ ...s.btn, ...s.btnSub, fontSize: 13, padding: "6px 16px", flex: "none", opacity: saving ? 0.5 : 1 }}
-                onClick={reset} disabled={saving}>Yes, reset</button>
-              <button className="kb-btn"
-                style={{ ...s.btn, background: t.surface, color: t.textMuted, border: `1px solid ${t.border}`,
-                  fontSize: 13, padding: "6px 16px", flex: "none" }}
-                onClick={() => setShowReset(false)}>Cancel</button>
-            </div>
-          )}
-        </div>
-
-      </div>
-    </div>
-  );
-}
-
-// ─── TabBar ───────────────────────────────────────────────────────────────────
-function TabBar({ activeTab, setActiveTab }) {
-  const t = useTheme();
-  const s = useStyles();
-  const tabs = [
-    { id: "balance", icon: "⚖", label: "Balance" },
-    { id: "calendar", icon: "◫", label: "Calendar" },
-    { id: "countdown", icon: "◷", label: "Countdown" },
-  ];
-  return (
-    <div style={s.tabBar}>
-      {tabs.map(tab => (
-        <button key={tab.id} className="kb-btn"
-          style={{ ...s.tabBtn, color: activeTab === tab.id ? t.tabActive : t.tabInactive }}
-          onClick={() => setActiveTab(tab.id)}>
-          <span style={{ fontSize: 18, lineHeight: 1 }}>{tab.icon}</span>
-          <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase" }}>
-            {tab.label}
-          </span>
-        </button>
-      ))}
-    </div>
+      <FloatingDock activeTab={activeTab} setActiveTab={setActiveTab} />
+    </>
   );
 }
