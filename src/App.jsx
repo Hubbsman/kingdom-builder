@@ -1,14 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
+import { THEMES, THEME_ORDER, ThemeContext, useTheme } from "./themes";
 // MENTOR_HIDDEN: import MentorChat from "./MentorChat";
 
 const fmt = (n) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 
-// ts is stored as ISO when we write it; old entries used locale strings — fall back to created_at
 const entryDate = (e) => { const t = new Date(e.ts); return isNaN(t) ? new Date(e.created_at) : t; };
 
-// Cubic bezier with horizontal tangents — smooth curves, zero Y overshoot guaranteed
 function smoothPath(pts) {
   if (pts.length === 0) return "";
   if (pts.length === 1) return `M${pts[0].x},${pts[0].y}`;
@@ -21,32 +20,210 @@ function smoothPath(pts) {
   return d;
 }
 
+const GLOBAL_CSS = `
+  @keyframes kb-shake {
+    0%,100%{transform:translateX(0)}
+    15%{transform:translateX(-8px)} 30%{transform:translateX(8px)}
+    45%{transform:translateX(-6px)} 60%{transform:translateX(6px)}
+    75%{transform:translateX(-3px)} 90%{transform:translateX(3px)}
+  }
+  @keyframes kb-fade-in {
+    from{opacity:0;transform:translateY(6px)}
+    to{opacity:1;transform:translateY(0)}
+  }
+  @keyframes kb-slide-up {
+    from{opacity:0;transform:translateY(40px)}
+    to{opacity:1;transform:translateY(0)}
+  }
+  @keyframes kb-scale-in {
+    from{opacity:0;transform:scale(0.94)}
+    to{opacity:1;transform:scale(1)}
+  }
+  @keyframes kb-glow-pulse {
+    0%,100%{opacity:0.55} 50%{opacity:1}
+  }
+  * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+  body { margin: 0; }
+  .kb-btn {
+    transition: transform 0.1s ease, opacity 0.12s ease, box-shadow 0.15s ease;
+    user-select: none; cursor: pointer;
+  }
+  .kb-btn:active { transform: scale(0.95) !important; }
+  .kb-fade-in { animation: kb-fade-in 0.22s ease both; }
+  .kb-slide-up { animation: kb-slide-up 0.3s cubic-bezier(0.34,1.1,0.64,1) both; }
+  .kb-scale-in { animation: kb-scale-in 0.18s ease both; }
+  .kb-theme-transition, .kb-theme-transition * {
+    transition: background-color 0.38s ease, color 0.38s ease,
+      border-color 0.38s ease, box-shadow 0.38s ease !important;
+  }
+  input { appearance: none; -webkit-appearance: none; }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  input[type=date]::-webkit-calendar-picker-indicator { filter: opacity(0.4); }
+  ::-webkit-scrollbar { width: 0; }
+`;
+
+// ─── Shared style factory ────────────────────────────────────────────────────
+function useStyles() {
+  const t = useTheme();
+  return {
+    root: {
+      minHeight: "100dvh",
+      background: t.bgGradient,
+      display: "flex",
+      alignItems: "flex-start",
+      justifyContent: "center",
+      padding: "70px 20px 60px",
+      fontFamily: "'Inter','Segoe UI',sans-serif",
+    },
+    card: {
+      width: "100%",
+      maxWidth: 480,
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+    },
+    surface: {
+      background: t.surface,
+      borderRadius: t.cardRadius,
+      border: `1px solid ${t.border}`,
+      boxShadow: t.shadow,
+    },
+    surface2: {
+      background: t.surface2,
+      borderRadius: t.selRadius,
+      border: `1px solid ${t.border}`,
+    },
+    input: {
+      background: t.inputBg,
+      border: `1px solid ${t.inputBorder}`,
+      borderRadius: t.inputRadius,
+      color: t.text,
+      fontSize: 18,
+      padding: "12px 16px",
+      outline: "none",
+      width: "100%",
+    },
+    noteInput: {
+      fontSize: 14,
+      padding: "9px 16px",
+      color: t.textMuted,
+    },
+    btn: {
+      flex: 1,
+      border: "none",
+      borderRadius: t.btnRadius,
+      fontSize: 16,
+      fontWeight: 600,
+      padding: "13px 0",
+      cursor: "pointer",
+      fontFamily: "'Inter','Segoe UI',sans-serif",
+    },
+    btnAdd: {
+      background: t.positiveSoft,
+      color: t.positive,
+      boxShadow: `0 2px 8px ${t.positiveSoft}`,
+    },
+    btnSub: {
+      background: t.negativeSoft,
+      color: t.negative,
+      boxShadow: `0 2px 8px ${t.negativeSoft}`,
+    },
+    tabBar: {
+      position: "fixed",
+      bottom: 0, left: 0, right: 0,
+      height: 56,
+      paddingBottom: "env(safe-area-inset-bottom,6px)",
+      background: t.tabBg,
+      borderTop: `1px solid ${t.tabBorder}`,
+      backdropFilter: "blur(12px)",
+      WebkitBackdropFilter: "blur(12px)",
+      display: "flex",
+      zIndex: 200,
+    },
+    tabBtn: {
+      flex: 1,
+      background: "none",
+      border: "none",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 3,
+      cursor: "pointer",
+      padding: 0,
+      fontFamily: "'Inter','Segoe UI',sans-serif",
+      transition: "color 0.2s ease",
+    },
+    errorBox: {
+      background: t.negativeSoft,
+      border: `1px solid ${t.negative}30`,
+      borderRadius: t.selRadius,
+      color: t.negative,
+      fontSize: 12,
+      padding: "8px 12px",
+    },
+    sectionLabel: {
+      fontSize: 10,
+      color: t.textFaint,
+      letterSpacing: "0.13em",
+      textTransform: "uppercase",
+      marginBottom: 6,
+      fontWeight: 500,
+    },
+    resetBtn: {
+      background: "none",
+      border: `1px solid ${t.border2}`,
+      borderRadius: t.selRadius,
+      color: t.textFaint,
+      fontSize: 13,
+      padding: "7px 20px",
+      cursor: "pointer",
+    },
+    chevron: {
+      background: "none",
+      border: "none",
+      color: t.textFaint,
+      fontSize: 20,
+      cursor: "pointer",
+      padding: "2px 6px",
+      lineHeight: 1,
+      display: "flex",
+      alignItems: "center",
+      transition: "transform 0.18s ease",
+      fontFamily: "sans-serif",
+    },
+    deleteBtn: {
+      background: "none",
+      border: "none",
+      color: t.deleteColor,
+      fontSize: 18,
+      cursor: "pointer",
+      padding: "4px 6px",
+      lineHeight: 1,
+    },
+  };
+}
+
+// ─── WeeklyChart ─────────────────────────────────────────────────────────────
 function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
+  const t = useTheme();
   const dragRef = useRef({ y: 0, moved: false });
-  const days = ["S", "M", "T", "W", "T", "F", "S"];
+  const days = ["S","M","T","W","T","F","S"];
   const dow = now.getDay();
   const weekStart = new Date(now);
   weekStart.setDate(now.getDate() - dow);
   weekStart.setHours(0, 0, 0, 0);
 
-  // Daily NET change per day (not cumulative) so Monday with no entries shows $0
   const balances = days.map((_, i) => {
     if (i > dow) return null;
-    const dayStart = new Date(weekStart);
-    dayStart.setDate(weekStart.getDate() + i);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(weekStart);
-    dayEnd.setDate(weekStart.getDate() + i);
-    dayEnd.setHours(23, 59, 59, 999);
-    return entries
-      .filter((e) => {
-        const t = entryDate(e);
-        return t >= dayStart && t <= dayEnd;
-      })
-      .reduce((sum, e) => sum + Number(e.change), 0);
+    const dayStart = new Date(weekStart); dayStart.setDate(weekStart.getDate() + i); dayStart.setHours(0,0,0,0);
+    const dayEnd = new Date(weekStart); dayEnd.setDate(weekStart.getDate() + i); dayEnd.setHours(23,59,59,999);
+    return entries.filter(e => { const ts = entryDate(e); return ts >= dayStart && ts <= dayEnd; })
+      .reduce((s, e) => s + Number(e.change), 0);
   });
 
-  const validVals = balances.filter((v) => v !== null);
+  const validVals = balances.filter(v => v !== null);
   if (validVals.length === 0) return null;
 
   const W = 300, H = 90;
@@ -56,33 +233,23 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
 
   const rawMax = Math.max(...validVals, 0);
   const rawMin = Math.min(...validVals, 0);
-  // Pad 20% on each side so zero never sits at the edge
   const pad = Math.max(rawMax * 0.2, Math.abs(rawMin) * 0.2, 8);
   const displayMax = rawMax + pad;
   const displayMin = rawMin - pad;
   const range = displayMax - displayMin;
 
-  const toY = (v) => padTop + innerH - ((v - displayMin) / range) * innerH;
-  const toX = (i) => padLeft + (i / 6) * innerW;
+  const toY = v => padTop + innerH - ((v - displayMin) / range) * innerH;
+  const toX = i => padLeft + (i / 6) * innerW;
 
-  const pts = balances
-    .map((v, i) => (v !== null ? { x: toX(i), y: toY(v), v, i } : null))
-    .filter(Boolean);
-
+  const pts = balances.map((v, i) => v !== null ? { x: toX(i), y: toY(v), v, i } : null).filter(Boolean);
   const zeroY = toY(0);
-
   const lp = smoothPath(pts);
-  const areaPath = lp
-    ? `${lp} L${pts[pts.length - 1].x},${zeroY} L${pts[0].x},${zeroY} Z`
-    : "";
+  const areaPath = lp ? `${lp} L${pts[pts.length-1].x},${zeroY} L${pts[0].x},${zeroY} Z` : "";
   const selectedDow = selectedDay ? selectedDay.getDay() : null;
 
-  const fmtShort = (v) => {
-    if (Math.abs(v) >= 1000) return `$${(v / 1000).toFixed(1)}k`;
-    return `$${Math.round(v)}`;
-  };
+  const fmtShort = v => Math.abs(v) >= 1000 ? `$${(v/1000).toFixed(1)}k` : `$${Math.round(v)}`;
 
-  const handleTap = (i) => {
+  const handleTap = i => {
     if (i > dow) return;
     if (selectedDow === i) { onSelectDay(null); return; }
     const d = new Date(weekStart);
@@ -93,70 +260,61 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
 
   return (
     <div style={{ width: "100%", marginTop: 10, marginBottom: 2 }}>
-      <svg viewBox={`0 0 ${W} ${H + 24}`} style={{ width: "100%", overflow: "visible" }}>
+      <svg viewBox={`0 0 ${W} ${H+24}`} style={{ width: "100%", overflow: "visible" }}>
         <defs>
-          <clipPath id="clip-above">
-            <rect x={0} y={0} width={W} height={zeroY} />
-          </clipPath>
-          <clipPath id="clip-below">
-            <rect x={0} y={zeroY} width={W} height={H + 24} />
-          </clipPath>
+          <clipPath id="clip-above"><rect x={0} y={0} width={W} height={zeroY} /></clipPath>
+          <clipPath id="clip-below"><rect x={0} y={zeroY} width={W} height={H+24} /></clipPath>
         </defs>
 
-        {/* Horizontal grid lines + y-axis labels */}
-        {[rawMax, (rawMin + rawMax) / 2, rawMin].map((val, idx) => {
+        {[rawMax, (rawMin+rawMax)/2, rawMin].map((val, idx) => {
           const y = toY(val);
           return (
             <g key={idx}>
-              <line x1={padLeft} y1={y} x2={W - padRight} y2={y} stroke="#1e1e1e" strokeWidth={1} />
-              <text x={padLeft - 5} y={y + 3.5} textAnchor="end" fontSize={9}
-                fontFamily="Inter, Segoe UI, sans-serif" fill="#3a3a3a">
+              <line x1={padLeft} y1={y} x2={W-padRight} y2={y} stroke={t.chartGrid} strokeWidth={1} />
+              <text x={padLeft-5} y={y+3.5} textAnchor="end" fontSize={9}
+                fontFamily="Inter,Segoe UI,sans-serif" fill={t.textFaint}>
                 {fmtShort(val)}
               </text>
             </g>
           );
         })}
 
-        <line x1={padLeft} y1={zeroY} x2={W - padRight} y2={zeroY}
-          stroke="#2a2a2a" strokeWidth={1} strokeDasharray="3 3" />
+        <line x1={padLeft} y1={zeroY} x2={W-padRight} y2={zeroY}
+          stroke={t.chartZero} strokeWidth={1} strokeDasharray="3 3" />
 
-        {/* Area fill: green above zero, red below */}
-        {areaPath && <path d={areaPath} fill="rgba(107,255,184,0.07)" clipPath="url(#clip-above)" />}
-        {areaPath && <path d={areaPath} fill="rgba(255,107,107,0.10)" clipPath="url(#clip-below)" />}
-        {/* Line: green above zero, red below */}
-        {lp && <path d={lp} fill="none" stroke="#6bffb8" strokeWidth={1.5} strokeLinecap="round" clipPath="url(#clip-above)" />}
-        {lp && <path d={lp} fill="none" stroke="#ff6b6b" strokeWidth={1.5} strokeLinecap="round" clipPath="url(#clip-below)" />}
+        {areaPath && <path d={areaPath} fill={t.positiveArea} clipPath="url(#clip-above)" />}
+        {areaPath && <path d={areaPath} fill={t.negativeArea} clipPath="url(#clip-below)" />}
+        {lp && <path d={lp} fill="none" stroke={t.chartLine} strokeWidth={1.5} strokeLinecap="round" clipPath="url(#clip-above)" />}
+        {lp && <path d={lp} fill="none" stroke={t.chartNeg} strokeWidth={1.5} strokeLinecap="round" clipPath="url(#clip-below)" />}
 
-        {/* Tappable columns — one per day */}
         {days.map((label, i) => {
           const x = toX(i);
-          const pt = pts.find((p) => p.i === i);
+          const pt = pts.find(p => p.i === i);
           const isToday = i === dow;
           const isSelected = selectedDow === i;
           const isFuture = i > dow;
           return (
             <g key={i}
-            onPointerDown={(e) => { dragRef.current = { y: e.clientY, moved: false }; }}
-            onPointerMove={(e) => { if (Math.abs(e.clientY - dragRef.current.y) > 12) dragRef.current.moved = true; }}
-            onPointerCancel={() => { dragRef.current.moved = true; }}
-            onPointerUp={() => { if (!dragRef.current.moved) handleTap(i); }}
-            style={{ cursor: isFuture ? "default" : "pointer" }}>
-              {/* Full-column hit target — rgba so it's actually clickable */}
-              <rect x={x - 14} y={0} width={28} height={H + 24} fill="rgba(0,0,0,0.01)" />
+              onPointerDown={e => { dragRef.current = { y: e.clientY, moved: false }; }}
+              onPointerMove={e => { if (Math.abs(e.clientY - dragRef.current.y) > 12) dragRef.current.moved = true; }}
+              onPointerCancel={() => { dragRef.current.moved = true; }}
+              onPointerUp={() => { if (!dragRef.current.moved) handleTap(i); }}
+              style={{ cursor: isFuture ? "default" : "pointer" }}>
+              <rect x={x-14} y={0} width={28} height={H+24} fill="rgba(0,0,0,0.01)" />
               {pt ? (
                 <circle cx={x} cy={pt.y}
                   r={isSelected ? 6 : isToday ? 5 : 3}
-                  fill={isSelected ? "#fff" : isToday ? "#6bffb8" : "#1a1a1a"}
-                  stroke={isSelected ? "#fff" : isToday ? "#6bffb8" : "#3a3a3a"}
+                  fill={isSelected ? t.text : isToday ? t.dot : t.dotEmpty}
+                  stroke={isSelected ? t.text : isToday ? t.dot : t.dotStroke}
                   strokeWidth={1.5}
                 />
               ) : !isFuture ? (
                 <circle cx={x} cy={zeroY} r={3}
-                  fill="#1a1a1a" stroke={isSelected ? "#fff" : "#2a2a2a"} strokeWidth={1} />
+                  fill={t.dotEmpty} stroke={isSelected ? t.text : t.dotStroke} strokeWidth={1} />
               ) : null}
-              <text x={x} y={H + 20} textAnchor="middle" fontSize={10}
-                fontFamily="Inter, Segoe UI, sans-serif"
-                fill={isSelected ? "#fff" : isToday ? "#6bffb8" : isFuture ? "#252525" : "#444"}>
+              <text x={x} y={H+20} textAnchor="middle" fontSize={10}
+                fontFamily="Inter,Segoe UI,sans-serif"
+                fill={isSelected ? t.text : isToday ? t.accent : isFuture ? t.border2 : t.textFaint}>
                 {label}
               </text>
             </g>
@@ -167,93 +325,93 @@ function WeeklyChart({ entries, now, selectedDay, onSelectDay }) {
   );
 }
 
+// ─── EntryRow ────────────────────────────────────────────────────────────────
 function EntryRow({ entry, onDelete, onEdit, showBorder }) {
+  const t = useTheme();
+  const s = useStyles();
   const isNeg = Number(entry.change) < 0;
   const tapRef = useRef({ x: 0, y: 0, moved: false });
+
   return (
     <div
-      onPointerDown={(e) => { tapRef.current = { x: e.clientX, y: e.clientY, moved: false }; }}
-      onPointerMove={(e) => {
-        const dx = e.clientX - tapRef.current.x;
-        const dy = e.clientY - tapRef.current.y;
-        if (Math.sqrt(dx * dx + dy * dy) >= 8) tapRef.current.moved = true;
+      onPointerDown={e => { tapRef.current = { x: e.clientX, y: e.clientY, moved: false }; }}
+      onPointerMove={e => {
+        const dx = e.clientX - tapRef.current.x, dy = e.clientY - tapRef.current.y;
+        if (Math.sqrt(dx*dx+dy*dy) >= 8) tapRef.current.moved = true;
       }}
       onPointerCancel={() => { tapRef.current.moved = true; }}
-      onPointerUp={(e) => {
+      onPointerUp={e => {
         if (tapRef.current.moved) return;
-        const dx = e.clientX - tapRef.current.x;
-        const dy = e.clientY - tapRef.current.y;
-        if (Math.sqrt(dx * dx + dy * dy) < 8) onEdit(entry);
+        const dx = e.clientX - tapRef.current.x, dy = e.clientY - tapRef.current.y;
+        if (Math.sqrt(dx*dx+dy*dy) < 8) onEdit(entry);
       }}
-      style={{ padding: "8px 14px", borderTop: showBorder ? "1px solid #1e1e1e" : "none",
+      style={{ padding: "8px 14px", borderTop: showBorder ? `1px solid ${t.border}` : "none",
         display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 2 }}>
-        <span style={{ fontSize: 14, fontWeight: 600, color: isNeg ? "#ff6b6b" : "#6bffb8" }}>
+        <span style={{ fontSize: 14, fontWeight: 600, color: isNeg ? t.negative : t.positive }}>
           {isNeg ? "" : "+"}{fmt(Number(entry.change))}
         </span>
-        {entry.note && <span style={{ fontSize: 11, color: "#555" }}>{entry.note}</span>}
+        {entry.note && <span style={{ fontSize: 11, color: t.textMuted }}>{entry.note}</span>}
       </div>
-      <span style={{ fontSize: 11, color: "#333" }}>
+      <span style={{ fontSize: 11, color: t.textFaint }}>
         {entryDate(entry).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
       </span>
       <button
-        onPointerDown={(e) => { e.stopPropagation(); }}
-        onPointerUp={(e) => { e.stopPropagation(); onDelete(entry.id); }}
-        style={{ background: "none", border: "none", color: "#4a2020", fontSize: 18, cursor: "pointer", padding: "4px 6px", lineHeight: 1 }}>×</button>
+        onPointerDown={e => e.stopPropagation()}
+        onPointerUp={e => { e.stopPropagation(); onDelete(entry.id); }}
+        style={s.deleteBtn}>×</button>
     </div>
   );
 }
 
+// ─── ThisWeekLog ──────────────────────────────────────────────────────────────
 function ThisWeekLog({ entries, now, onDelete, onEdit }) {
+  const t = useTheme();
+  const s = useStyles();
   const [expanded, setExpanded] = useState(null);
-  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const dayNames = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
   const dow = now.getDay();
   const weekStart = new Date(now);
   weekStart.setDate(now.getDate() - dow);
-  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setHours(0,0,0,0);
 
   const days = [];
   for (let i = 0; i <= dow; i++) {
-    const dayStart = new Date(weekStart);
-    dayStart.setDate(weekStart.getDate() + i);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(weekStart);
-    dayEnd.setDate(weekStart.getDate() + i);
-    dayEnd.setHours(23, 59, 59, 999);
-    const items = entries.filter(e => { const t = entryDate(e); return t >= dayStart && t <= dayEnd; });
+    const dayStart = new Date(weekStart); dayStart.setDate(weekStart.getDate()+i); dayStart.setHours(0,0,0,0);
+    const dayEnd = new Date(weekStart); dayEnd.setDate(weekStart.getDate()+i); dayEnd.setHours(23,59,59,999);
+    const items = entries.filter(e => { const ts = entryDate(e); return ts >= dayStart && ts <= dayEnd; });
     if (!items.length) continue;
-    const net = items.reduce((s, e) => s + Number(e.change), 0);
+    const net = items.reduce((sum, e) => sum + Number(e.change), 0);
     days.push({ key: dayStart.toLocaleDateString("en-CA"), name: dayNames[i], items, net });
   }
-
   if (!days.length) return null;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
       {[...days].reverse().map(({ key, name, items, net }) => {
         const isOpen = expanded === key;
         return (
-          <div key={key}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-              background: "#1a1a1a", padding: "10px 14px",
-              borderRadius: isOpen ? "8px 8px 0 0" : 8 }}>
-              <span style={{ fontSize: 13, color: "#666" }}>{name}</span>
+          <div key={key} className="kb-fade-in">
+            <div onClick={() => setExpanded(isOpen ? null : key)}
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                background: t.surface, padding: "10px 14px", cursor: "pointer",
+                borderRadius: isOpen ? `${t.cardRadius}px ${t.cardRadius}px 0 0` : t.cardRadius,
+                border: `1px solid ${t.border}`,
+                borderBottom: isOpen ? `1px solid ${t.border}` : `1px solid ${t.border}`,
+                boxShadow: t.shadow }}>
+              <span style={{ fontSize: 13, color: t.textMuted, fontWeight: 500 }}>{name}</span>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
+                <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? t.negative : t.positive }}>
                   {net > 0 ? "+" : ""}{fmt(net)}
                 </span>
-                <button onClick={() => setExpanded(isOpen ? null : key)}
-                  style={{ background: "none", border: "none", color: "#555", fontSize: 20, cursor: "pointer",
-                    padding: "2px 6px", lineHeight: 1, display: "flex", alignItems: "center",
-                    transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s ease" }}>
-                  ›
-                </button>
+                <span style={{ ...s.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
               </div>
             </div>
             {isOpen && (
-              <div style={{ background: "#141414", borderRadius: "0 0 8px 8px" }}>
-                {[...items].sort((a, b) => entryDate(b) - entryDate(a)).map((e, i) => (
-                  <EntryRow key={e.id} entry={e} onDelete={onDelete} onEdit={onEdit} showBorder={i > 0} />
+              <div style={{ background: t.surface2, borderRadius: `0 0 ${t.cardRadius}px ${t.cardRadius}px`,
+                border: `1px solid ${t.border}`, borderTop: "none" }}>
+                {[...items].sort((a,b) => entryDate(b)-entryDate(a)).map((e,i) => (
+                  <EntryRow key={e.id} entry={e} onDelete={onDelete} onEdit={onEdit} showBorder={i>0} />
                 ))}
               </div>
             )}
@@ -264,130 +422,107 @@ function ThisWeekLog({ entries, now, onDelete, onEdit }) {
   );
 }
 
+// ─── WeeklyLog ────────────────────────────────────────────────────────────────
 function WeeklyLog({ entries, now, onDelete, onEdit }) {
+  const t = useTheme();
+  const s = useStyles();
   const [expandedWeek, setExpandedWeek] = useState(null);
-  // Tracks which day boxes are open: "weekKey|dayKey" → true
   const [expandedDays, setExpandedDays] = useState({});
-
   const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 
-  const sundayOf = (d) => {
-    const s = new Date(d);
-    s.setDate(d.getDate() - d.getDay());
-    s.setHours(0, 0, 0, 0);
-    return s;
+  const sundayOf = d => {
+    const s2 = new Date(d); s2.setDate(d.getDate()-d.getDay()); s2.setHours(0,0,0,0); return s2;
   };
-
-  const weekKey = (d) => {
-    const s = sundayOf(d);
-    return s.toLocaleDateString("en-CA");
-  };
-
-  const weekLabel = (d) => {
-    const s = sundayOf(d);
-    const weekNum = Math.floor((s.getDate() - 1) / 7) + 1;
-    return `${s.toLocaleDateString("en-US", { month: "long" })} Week ${weekNum}`;
+  const weekKey = d => sundayOf(d).toLocaleDateString("en-CA");
+  const weekLabel = d => {
+    const s2 = sundayOf(d);
+    return `${s2.toLocaleDateString("en-US",{month:"long"})} Week ${Math.floor((s2.getDate()-1)/7)+1}`;
   };
 
   const calWeekStart = sundayOf(now);
-
   const past = entries.filter(e => entryDate(e) < calWeekStart);
   if (!past.length) return null;
 
   const groups = {};
   past.forEach(e => {
-    const d = entryDate(e);
-    const k = weekKey(d);
+    const d = entryDate(e), k = weekKey(d);
     if (!groups[k]) groups[k] = { label: weekLabel(d), sunday: sundayOf(d), items: [], net: 0 };
     groups[k].items.push(e);
     groups[k].net += Number(e.change);
   });
 
-  const weeks = Object.entries(groups).sort(([a], [b]) => b.localeCompare(a));
+  const weeks = Object.entries(groups).sort(([a],[b]) => b.localeCompare(a));
 
   const toggleDay = (wk, dk) => {
-    const composite = `${wk}|${dk}`;
-    setExpandedDays(prev => ({ ...prev, [composite]: !prev[composite] }));
+    const c = `${wk}|${dk}`;
+    setExpandedDays(prev => ({ ...prev, [c]: !prev[c] }));
   };
 
   return (
     <div style={{ marginTop: 14 }}>
-      <div style={{ fontSize: 10, color: "#555", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>Weekly</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <div style={s.sectionLabel}>Weekly</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
         {weeks.map(([k, { label, sunday, items, net }]) => {
           const isOpen = expandedWeek === k;
 
-          // Build a map of dayKey → entries for this week
           const dayMap = {};
           items.forEach(e => {
-            const d = entryDate(e);
-            const dk = d.toLocaleDateString("en-CA");
+            const d = entryDate(e), dk = d.toLocaleDateString("en-CA");
             if (!dayMap[dk]) dayMap[dk] = [];
             dayMap[dk].push(e);
           });
 
-          // All 7 days of this week, Sun → Sat
           const weekDays = Array.from({ length: 7 }, (_, i) => {
-            const date = new Date(sunday);
-            date.setDate(sunday.getDate() + i);
+            const date = new Date(sunday); date.setDate(sunday.getDate()+i);
             const dk = date.toLocaleDateString("en-CA");
             const dayEntries = dayMap[dk] || [];
-            const dayNet = dayEntries.reduce((s, e) => s + Number(e.change), 0);
-            return { dow: i, name: DAY_NAMES[i], dk, date, dayEntries, dayNet };
+            const dayNet = dayEntries.reduce((sum, e) => sum + Number(e.change), 0);
+            return { name: DAY_NAMES[i], dk, dayEntries, dayNet };
           });
 
           return (
             <div key={k}>
-              {/* Week header row */}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-                background: "#1a1a1a", padding: "10px 14px",
-                borderRadius: isOpen ? "8px 8px 0 0" : 8 }}>
-                <span style={{ fontSize: 13, color: "#666" }}>{label}</span>
+              <div onClick={() => {
+                setExpandedWeek(isOpen ? null : k);
+                if (isOpen) setExpandedDays(prev => {
+                  const next = { ...prev };
+                  Object.keys(next).forEach(key => { if (key.startsWith(`${k}|`)) delete next[key]; });
+                  return next;
+                });
+              }}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                  background: t.surface, padding: "10px 14px", cursor: "pointer",
+                  borderRadius: isOpen ? `${t.cardRadius}px ${t.cardRadius}px 0 0` : t.cardRadius,
+                  border: `1px solid ${t.border}`,
+                  boxShadow: t.shadow }}>
+                <span style={{ fontSize: 13, color: t.textMuted, fontWeight: 500 }}>{label}</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: net < 0 ? t.negative : t.positive }}>
                     {net > 0 ? "+" : ""}{fmt(net)}
                   </span>
-                  <button onClick={() => {
-                    setExpandedWeek(isOpen ? null : k);
-                    // Collapse all day boxes when closing a week
-                    if (isOpen) {
-                      setExpandedDays(prev => {
-                        const next = { ...prev };
-                        Object.keys(next).forEach(key => { if (key.startsWith(`${k}|`)) delete next[key]; });
-                        return next;
-                      });
-                    }
-                  }}
-                    style={{ background: "none", border: "none", color: "#555", fontSize: 20, cursor: "pointer",
-                      padding: "2px 6px", lineHeight: 1, display: "flex", alignItems: "center",
-                      transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s ease" }}>
-                    ›
-                  </button>
+                  <span style={{ ...s.chevron, transform: isOpen ? "rotate(90deg)" : "none" }}>›</span>
                 </div>
               </div>
 
-              {/* 7 day boxes — all always rendered when week is open */}
               {isOpen && (
-                <div style={{ background: "#141414", borderRadius: "0 0 8px 8px", overflow: "hidden" }}>
-                  {weekDays.map(({ dow, name, dk, dayEntries, dayNet }, di) => {
+                <div style={{ background: t.surface2, borderRadius: `0 0 ${t.cardRadius}px ${t.cardRadius}px`,
+                  border: `1px solid ${t.border}`, borderTop: "none", overflow: "hidden" }}>
+                  {weekDays.map(({ name, dk, dayEntries, dayNet }, di) => {
                     const composite = `${k}|${dk}`;
                     const isDayOpen = !!expandedDays[composite];
                     const hasEntries = dayEntries.length > 0;
-
                     return (
-                      <div key={dk} style={{ borderTop: di > 0 ? "1px solid #1e1e1e" : "none" }}>
-                        {/* Day header — always visible, tappable */}
-                        <div
-                          onClick={() => hasEntries && toggleDay(k, dk)}
+                      <div key={dk} style={{ borderTop: di > 0 ? `1px solid ${t.border}` : "none" }}>
+                        <div onClick={() => hasEntries && toggleDay(k, dk)}
                           style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
                             padding: "9px 14px", cursor: hasEntries ? "pointer" : "default" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 12, color: hasEntries ? "#555" : "#333",
+                            <span style={{ fontSize: 12, color: hasEntries ? t.textMuted : t.textFaint,
                               letterSpacing: "0.07em", textTransform: "uppercase", minWidth: 72 }}>
                               {name}
                             </span>
                             {hasEntries && (
-                              <span style={{ fontSize: 11, color: "#333" }}>
+                              <span style={{ fontSize: 11, color: t.textFaint }}>
                                 {dayEntries.length} {dayEntries.length === 1 ? "txn" : "txns"}
                               </span>
                             )}
@@ -395,27 +530,21 @@ function WeeklyLog({ entries, now, onDelete, onEdit }) {
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             {hasEntries ? (
                               <>
-                                <span style={{ fontSize: 13, fontWeight: 600,
-                                  color: dayNet < 0 ? "#ff6b6b" : "#6bffb8" }}>
+                                <span style={{ fontSize: 13, fontWeight: 600, color: dayNet < 0 ? t.negative : t.positive }}>
                                   {dayNet > 0 ? "+" : ""}{fmt(dayNet)}
                                 </span>
-                                <span style={{ fontSize: 16, color: "#444", lineHeight: 1,
-                                  transform: isDayOpen ? "rotate(90deg)" : "none",
-                                  transition: "transform 0.15s ease", display: "inline-block" }}>
-                                  ›
-                                </span>
+                                <span style={{ ...s.chevron, fontSize: 16,
+                                  transform: isDayOpen ? "rotate(90deg)" : "none" }}>›</span>
                               </>
                             ) : (
-                              <span style={{ fontSize: 11, color: "#2a2a2a" }}>—</span>
+                              <span style={{ fontSize: 11, color: t.textFaint }}>—</span>
                             )}
                           </div>
                         </div>
-
-                        {/* Expanded entries for this day */}
                         {isDayOpen && hasEntries && (
-                          <div style={{ background: "#111111" }}>
-                            {[...dayEntries].sort((a, b) => entryDate(b) - entryDate(a)).map((e, i) => (
-                              <EntryRow key={e.id} entry={e} onDelete={onDelete} onEdit={onEdit} showBorder={i > 0} />
+                          <div style={{ background: t.surface3 || t.surface2 }}>
+                            {[...dayEntries].sort((a,b) => entryDate(b)-entryDate(a)).map((e,i) => (
+                              <EntryRow key={e.id} entry={e} onDelete={onDelete} onEdit={onEdit} showBorder={i>0} />
                             ))}
                           </div>
                         )}
@@ -432,7 +561,10 @@ function WeeklyLog({ entries, now, onDelete, onEdit }) {
   );
 }
 
+// ─── EditEntryModal ──────────────────────────────────────────────────────────
 function EditEntryModal({ entry, onSave, onDelete, onClose }) {
+  const t = useTheme();
+  const s = useStyles();
   const [amount, setAmount] = useState(String(Math.abs(Number(entry.change))));
   const [note, setNote] = useState(entry.note || "");
   const [saving, setSaving] = useState(false);
@@ -443,95 +575,73 @@ function EditEntryModal({ entry, onSave, onDelete, onClose }) {
     if (!val || isNaN(val) || val <= 0) return;
     setSaving(true);
     await onSave(entry.id, isNeg ? -val : val, note.trim() || null);
-    setSaving(false);
-    onClose();
+    setSaving(false); onClose();
   };
 
   const handleDelete = async () => {
     setSaving(true);
     await onDelete(entry.id);
-    setSaving(false);
-    onClose();
+    setSaving(false); onClose();
   };
 
   return (
-    <div
-      onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 500,
-        display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div style={{ width: "100%", maxWidth: 480, background: "#141414",
-        borderRadius: "16px 16px 0 0", padding: "20px 20px 36px",
-        border: "1px solid #2a2a2a", borderBottom: "none",
-        display: "flex", flexDirection: "column", gap: 12 }}>
+    <div onPointerDown={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: "fixed", inset: 0, background: t.modalBg, zIndex: 500,
+        display: "flex", alignItems: "flex-end", justifyContent: "center",
+        backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
+      <div className="kb-slide-up"
+        style={{ width: "100%", maxWidth: 480, background: t.surface,
+          borderRadius: `${t.cardRadius*1.2}px ${t.cardRadius*1.2}px 0 0`,
+          padding: "20px 20px 40px",
+          border: `1px solid ${t.border}`, borderBottom: "none",
+          boxShadow: t.shadow2,
+          display: "flex", flexDirection: "column", gap: 12 }}>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-          <span style={{ fontSize: 12, color: "#555", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+          <span style={{ fontSize: 11, color: t.textMuted, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600 }}>
             Edit Transaction
           </span>
           <button onPointerDown={onClose}
-            style={{ background: "none", border: "none", color: "#444", fontSize: 22, cursor: "pointer",
-              padding: "0 2px", lineHeight: 1 }}>×</button>
+            style={{ background: "none", border: "none", color: t.textFaint, fontSize: 22, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
         </div>
 
-        <div style={{ fontSize: 11, color: "#333" }}>
-          {entryDate(entry).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+        <div style={{ fontSize: 11, color: t.textFaint }}>
+          {entryDate(entry).toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric"})}
           {" · "}
-          {entryDate(entry).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+          {entryDate(entry).toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"})}
         </div>
 
-        <input
-          style={{ background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 10,
-            color: "#e2e2e2", fontSize: 18, padding: "12px 16px", outline: "none",
-            width: "100%", boxSizing: "border-box" }}
-          type="number"
-          inputMode="decimal"
-          placeholder="0.00"
-          value={amount}
-          min="0"
-          disabled={saving}
-          onChange={(e) => setAmount(e.target.value)}
-        />
+        <input style={{ ...s.input }} type="number" inputMode="decimal"
+          placeholder="0.00" value={amount} min="0" disabled={saving}
+          onChange={e => setAmount(e.target.value)} />
 
-        <input
-          style={{ background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 10,
-            color: "#aaa", fontSize: 14, padding: "9px 16px", outline: "none",
-            width: "100%", boxSizing: "border-box" }}
-          type="text"
-          placeholder="Note (optional)"
-          value={note}
-          maxLength={80}
-          disabled={saving}
-          onChange={(e) => setNote(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
-        />
+        <input style={{ ...s.input, ...s.noteInput }} type="text"
+          placeholder="Note (optional)" value={note} maxLength={80} disabled={saving}
+          onChange={e => setNote(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter") handleSave(); }} />
 
         <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-          <button
-            onPointerDown={handleSave}
-            disabled={saving}
-            style={{ flex: 1, border: "none", borderRadius: 10, fontSize: 15, fontWeight: 600,
-              padding: "13px 0", cursor: saving ? "default" : "pointer",
-              background: isNeg ? "#3a1a1a" : "#1a3a2a",
-              color: isNeg ? "#ff6b6b" : "#6bffb8",
-              opacity: saving ? 0.5 : 1 }}>
+          <button className="kb-btn" onPointerDown={handleSave} disabled={saving}
+            style={{ ...s.btn, ...(isNeg ? s.btnSub : s.btnAdd), opacity: saving ? 0.5 : 1 }}>
             Save
           </button>
-          <button
-            onPointerDown={handleDelete}
-            disabled={saving}
-            style={{ flex: "none", border: "1px solid #3a1a1a", borderRadius: 10, fontSize: 15,
-              fontWeight: 600, padding: "13px 20px", cursor: saving ? "default" : "pointer",
-              background: "transparent", color: "#ff6b6b", opacity: saving ? 0.5 : 1 }}>
+          <button className="kb-btn" onPointerDown={handleDelete} disabled={saving}
+            style={{ flex: "none", border: `1px solid ${t.negativeSoft}`, borderRadius: t.btnRadius,
+              fontSize: 15, fontWeight: 600, padding: "13px 20px", cursor: saving ? "default" : "pointer",
+              background: "transparent", color: t.negative, opacity: saving ? 0.5 : 1,
+              fontFamily: "'Inter','Segoe UI',sans-serif" }}>
             Delete
           </button>
         </div>
-
       </div>
     </div>
   );
 }
 
-function CalendarView({ entries, now, supabase }) {
+// ─── CalendarView ─────────────────────────────────────────────────────────────
+function CalendarView({ entries, now }) {
+  const t = useTheme();
+  const s = useStyles();
   const [subs, setSubs] = useState([]);
   const [calLoading, setCalLoading] = useState(true);
   const [selectedDay, setSelectedDay] = useState(null);
@@ -540,219 +650,134 @@ function CalendarView({ entries, now, supabase }) {
   const [subDay, setSubDay] = useState("");
   const [subSaving, setSubSaving] = useState(false);
 
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
+  const todayDate = now.getDate();
 
-  useEffect(() => {
-    fetchSubs();
-  }, []);
+  useEffect(() => { fetchSubs(); }, []);
 
   const fetchSubs = async () => {
     setCalLoading(true);
-    const { data } = await supabase.from("subscriptions").select("*").order("day_of_month", { ascending: true });
+    const { data } = await supabase.from("subscriptions").select("*").order("day_of_month",{ascending:true});
     if (data) setSubs(data);
     setCalLoading(false);
   };
 
   const runAutoDeductions = async (subsToCheck) => {
     const todayNum = now.getDate();
-    const due = subsToCheck.filter(s => s.day_of_month === todayNum);
+    const due = subsToCheck.filter(s2 => s2.day_of_month === todayNum);
     if (!due.length) return;
-
     const todayStr = now.toLocaleDateString("en-CA");
-    const { data: todayEntries } = await supabase
-      .from("money_entries")
-      .select("*")
-      .gte("ts", `${todayStr}T00:00:00`)
-      .lte("ts", `${todayStr}T23:59:59`);
-
+    const { data: todayEntries } = await supabase.from("money_entries").select("*")
+      .gte("ts",`${todayStr}T00:00:00`).lte("ts",`${todayStr}T23:59:59`);
     for (const sub of due) {
-      const alreadyDeducted = (todayEntries || []).some(
-        e => e.note === sub.name && Number(e.change) === -Math.abs(Number(sub.amount))
-      );
-      if (!alreadyDeducted) {
-        await supabase.from("money_entries").insert({
-          change: -Math.abs(Number(sub.amount)),
-          note: sub.name,
-          ts: new Date().toISOString(),
-          created_at: new Date().toISOString(),
+      const already = (todayEntries||[]).some(e => e.note === sub.name && Number(e.change) === -Math.abs(Number(sub.amount)));
+      if (!already) await supabase.from("money_entries").insert({
+        change: -Math.abs(Number(sub.amount)), note: sub.name,
+        ts: new Date().toISOString(), created_at: new Date().toISOString(),
+      });
+    }
+  };
+
+  useEffect(() => { if (!calLoading && subs.length > 0) runAutoDeductions(subs); }, [calLoading]);
+
+  const addSub = async () => {
+    const name = subName.trim(), amount = parseFloat(subAmount), day = parseInt(subDay,10);
+    if (!name || isNaN(amount) || amount <= 0 || isNaN(day) || day < 1 || day > 31) return;
+    setSubSaving(true);
+    const { data } = await supabase.from("subscriptions").insert({ name, amount, day_of_month: day }).select().single();
+    if (data) {
+      const newSubs = [...subs, data].sort((a,b) => a.day_of_month - b.day_of_month);
+      setSubs(newSubs);
+      if (day === now.getDate()) {
+        const todayStr = now.toLocaleDateString("en-CA");
+        const { data: te } = await supabase.from("money_entries").select("*")
+          .gte("ts",`${todayStr}T00:00:00`).lte("ts",`${todayStr}T23:59:59`);
+        const already = (te||[]).some(e => e.note === name && Number(e.change) === -Math.abs(amount));
+        if (!already) await supabase.from("money_entries").insert({
+          change: -Math.abs(amount), note: name, ts: new Date().toISOString(), created_at: new Date().toISOString(),
         });
       }
     }
+    setSubName(""); setSubAmount(""); setSubDay(""); setSubSaving(false);
   };
 
-  useEffect(() => {
-    if (!calLoading && subs.length > 0) {
-      runAutoDeductions(subs);
-    }
-  }, [calLoading]);
-
-  const addSub = async () => {
-    const name = subName.trim();
-    const amount = parseFloat(subAmount);
-    const day = parseInt(subDay, 10);
-    if (!name || isNaN(amount) || amount <= 0 || isNaN(day) || day < 1 || day > 31) return;
-
-    setSubSaving(true);
-    const { data } = await supabase
-      .from("subscriptions")
-      .insert({ name, amount, day_of_month: day })
-      .select()
-      .single();
-
-    if (data) {
-      const newSubs = [...subs, data].sort((a, b) => a.day_of_month - b.day_of_month);
-      setSubs(newSubs);
-
-      const todayNum = now.getDate();
-      if (day === todayNum) {
-        const todayStr = now.toLocaleDateString("en-CA");
-        const { data: todayEntries } = await supabase
-          .from("money_entries")
-          .select("*")
-          .gte("ts", `${todayStr}T00:00:00`)
-          .lte("ts", `${todayStr}T23:59:59`);
-        const alreadyDeducted = (todayEntries || []).some(
-          e => e.note === name && Number(e.change) === -Math.abs(amount)
-        );
-        if (!alreadyDeducted) {
-          await supabase.from("money_entries").insert({
-            change: -Math.abs(amount),
-            note: name,
-            ts: new Date().toISOString(),
-            created_at: new Date().toISOString(),
-          });
-        }
-      }
-    }
-
-    setSubName("");
-    setSubAmount("");
-    setSubDay("");
-    setSubSaving(false);
-  };
-
-  const deleteSub = async (id) => {
-    await supabase.from("subscriptions").delete().eq("id", id);
-    setSubs(prev => prev.filter(s => s.id !== id));
+  const deleteSub = async id => {
+    await supabase.from("subscriptions").delete().eq("id",id);
+    setSubs(prev => prev.filter(s2 => s2.id !== id));
     if (selectedDay !== null) {
-      const dayNum = selectedDay;
-      const remaining = subs.filter(s => s.id !== id && s.day_of_month === dayNum);
-      if (remaining.length === 0) setSelectedDay(null);
+      const remaining = subs.filter(s2 => s2.id !== id && s2.day_of_month === selectedDay);
+      if (!remaining.length) setSelectedDay(null);
     }
   };
 
-  // Build calendar grid for current month
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const todayDate = now.getDate();
+  const year = now.getFullYear(), month = now.getMonth();
   const firstDow = new Date(year, month, 1).getDay();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
 
-  // Map day number -> list of subs
   const subsByDay = {};
-  subs.forEach(s => {
-    const d = s.day_of_month;
+  subs.forEach(s2 => {
+    const d = s2.day_of_month;
     if (!subsByDay[d]) subsByDay[d] = [];
-    subsByDay[d].push(s);
+    subsByDay[d].push(s2);
   });
 
-  // Dot layout positions for up to 6 dots in a cell
   const dotLayouts = {
-    1: [[0, 0]],
-    2: [[-3, 0], [3, 0]],
-    3: [[-4, 0], [0, 0], [4, 0]],
-    4: [[-4, -2], [0, -2], [4, -2], [0, 2]],
-    5: [[-4, -2], [0, -2], [4, -2], [-2, 2], [2, 2]],
-    6: [[-4, -2], [0, -2], [4, -2], [-4, 2], [0, 2], [4, 2]],
+    1:[[0,0]], 2:[[-3,0],[3,0]], 3:[[-4,0],[0,0],[4,0]],
+    4:[[-4,-2],[0,-2],[4,-2],[0,2]], 5:[[-4,-2],[0,-2],[4,-2],[-2,2],[2,2]],
+    6:[[-4,-2],[0,-2],[4,-2],[-4,2],[0,2],[4,2]],
   };
 
   const selectedSubs = selectedDay !== null ? (subsByDay[selectedDay] || []) : [];
-
-  // Upcoming subs total: days that haven't passed yet this month (including today)
-  const upcomingTotal = subs
-    .filter(s => s.day_of_month >= todayDate)
-    .reduce((sum, s) => sum + Number(s.amount), 0);
-
-  const monthLabel = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-
+  const upcomingTotal = subs.filter(s2 => s2.day_of_month >= todayDate).reduce((sum,s2) => sum+Number(s2.amount),0);
+  const monthLabel = now.toLocaleDateString("en-US",{month:"long",year:"numeric"});
   const cells = [];
   for (let i = 0; i < firstDow; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
 
   return (
-    <div style={{ ...styles.root, paddingBottom: 90 }}>
-      <div style={styles.card}>
+    <div style={{ ...s.root, paddingBottom: 90 }}>
+      <div style={s.card}>
 
-        {/* Month header */}
-        <div style={{ fontSize: 13, color: "#666", fontWeight: 500, letterSpacing: "0.01em", marginBottom: 4 }}>
+        <div style={{ fontSize: 13, color: t.textMuted, fontWeight: 500, letterSpacing: "0.01em", marginBottom: 4 }}>
           {monthLabel}
         </div>
 
         {/* Calendar grid */}
-        <div style={{ background: "#1a1a1a", borderRadius: 12, padding: "12px 10px 10px", border: "1px solid #1e1e1e" }}>
-          {/* Day-of-week headers */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 }}>
-            {["S","M","T","W","T","F","S"].map((d, i) => (
-              <div key={i} style={{ textAlign: "center", fontSize: 10, color: "#444", fontWeight: 600, letterSpacing: "0.08em" }}>
-                {d}
-              </div>
+        <div style={{ background: t.surface, borderRadius: t.cardRadius, padding: "12px 10px 10px",
+          border: `1px solid ${t.border}`, boxShadow: t.shadow }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", marginBottom: 6 }}>
+            {["S","M","T","W","T","F","S"].map((d,i) => (
+              <div key={i} style={{ textAlign: "center", fontSize: 10, color: t.textFaint, fontWeight: 600, letterSpacing: "0.08em" }}>{d}</div>
             ))}
           </div>
-
-          {/* Day cells */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "4px 2px" }}>
-            {cells.map((d, i) => {
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: "4px 2px" }}>
+            {cells.map((d,i) => {
               if (d === null) return <div key={`e${i}`} />;
-
-              const isPast = d < todayDate;
-              const isToday = d === todayDate;
-              const isFuture = d > todayDate;
+              const isPast = d < todayDate, isToday = d === todayDate;
               const isSelected = selectedDay === d;
               const dotList = subsByDay[d] || [];
               const dotCount = Math.min(dotList.length, 6);
               const layout = dotLayouts[dotCount] || [];
-
               return (
-                <div key={d}
-                  onClick={() => setSelectedDay(isSelected ? null : d)}
-                  style={{
-                    position: "relative",
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: 40,
-                    borderRadius: 8,
+                <div key={d} onClick={() => setSelectedDay(isSelected ? null : d)}
+                  style={{ position: "relative", display: "flex", flexDirection: "column",
+                    alignItems: "center", justifyContent: "center", height: 40, borderRadius: t.selRadius,
                     cursor: dotCount > 0 ? "pointer" : "default",
-                    background: isSelected ? "#2a2a2a" : "transparent",
-                    border: isToday ? "1px solid #6bffb8" : isSelected ? "1px solid #3a3a3a" : "1px solid transparent",
-                    boxShadow: isToday ? "0 0 8px rgba(107,255,184,0.15)" : "none",
+                    background: isSelected ? t.accentSoft : "transparent",
+                    border: isToday ? `1px solid ${t.accent}` : isSelected ? `1px solid ${t.border2}` : "1px solid transparent",
+                    transition: "background 0.15s ease",
                   }}>
-
-                  <span style={{
-                    fontSize: 13,
-                    fontWeight: isToday ? 700 : 400,
-                    color: isToday ? "#6bffb8" : isPast ? "#333" : "#888",
-                    lineHeight: 1,
-                    marginBottom: dotCount > 0 ? 2 : 0,
-                  }}>
+                  <span style={{ fontSize: 13, fontWeight: isToday ? 700 : 400,
+                    color: isToday ? t.accent : isPast ? t.textFaint : t.text,
+                    lineHeight: 1, marginBottom: dotCount > 0 ? 2 : 0 }}>
                     {d}
                   </span>
-
-                  {/* Subscription dots */}
                   {dotCount > 0 && (
                     <div style={{ position: "relative", height: 8, width: 24 }}>
-                      {layout.map(([ox, oy], di) => (
-                        <div key={di} style={{
-                          position: "absolute",
-                          width: 4, height: 4,
-                          borderRadius: "50%",
-                          background: "#e0954a",
-                          left: "50%",
-                          top: "50%",
-                          transform: `translate(calc(-50% + ${ox}px), calc(-50% + ${oy}px))`,
-                        }} />
+                      {layout.map(([ox,oy],di) => (
+                        <div key={di} style={{ position: "absolute", width: 4, height: 4,
+                          borderRadius: "50%", background: t.billingAccent,
+                          left: "50%", top: "50%",
+                          transform: `translate(calc(-50% + ${ox}px),calc(-50% + ${oy}px))` }} />
                       ))}
                     </div>
                   )}
@@ -764,24 +789,24 @@ function CalendarView({ entries, now, supabase }) {
 
         {/* Selected day panel */}
         {selectedDay !== null && (
-          <div style={{ background: "#141414", border: "1px solid #1e1e1e", borderRadius: 10, padding: "12px 14px" }}>
-            <div style={{ fontSize: 12, color: "#555", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>
-              {now.toLocaleDateString("en-US", { month: "long" })} {selectedDay}
+          <div className="kb-fade-in" style={{ background: t.surface2, border: `1px solid ${t.border}`,
+            borderRadius: t.cardRadius, padding: "12px 14px", boxShadow: t.shadow }}>
+            <div style={{ fontSize: 11, color: t.textMuted, letterSpacing: "0.1em", textTransform: "uppercase",
+              marginBottom: 8, fontWeight: 500 }}>
+              {now.toLocaleDateString("en-US",{month:"long"})} {selectedDay}
             </div>
             {selectedSubs.length === 0 ? (
-              <div style={{ fontSize: 13, color: "#333" }}>No subscriptions on this day</div>
+              <div style={{ fontSize: 13, color: t.textFaint }}>No subscriptions on this day</div>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {selectedSubs.map(s => (
-                  <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                {selectedSubs.map(sub => (
+                  <div key={sub.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                      <span style={{ fontSize: 14, color: "#e2e2e2" }}>{s.name}</span>
-                      <span style={{ fontSize: 12, color: "#e0954a" }}>{fmt(s.amount)}/mo</span>
+                      <span style={{ fontSize: 14, color: t.text }}>{sub.name}</span>
+                      <span style={{ fontSize: 12, color: t.billingAccent }}>{fmt(sub.amount)}/mo</span>
                     </div>
-                    <button onClick={() => deleteSub(s.id)}
-                      style={{ background: "none", border: "none", color: "#4a2020", fontSize: 18, cursor: "pointer", padding: "4px 6px", lineHeight: 1 }}>
-                      ×
-                    </button>
+                    <button onClick={() => deleteSub(sub.id)}
+                      style={{ background: "none", border: "none", color: t.deleteColor, fontSize: 18, cursor: "pointer", padding: "4px 6px", lineHeight: 1 }}>×</button>
                   </div>
                 ))}
               </div>
@@ -792,79 +817,53 @@ function CalendarView({ entries, now, supabase }) {
         {/* Upcoming total */}
         {subs.length > 0 && (
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-            background: "#1a1a1a", borderRadius: 8, padding: "10px 14px" }}>
-            <span style={{ fontSize: 12, color: "#555", letterSpacing: "0.08em", textTransform: "uppercase" }}>Upcoming this month</span>
-            <span style={{ fontSize: 15, fontWeight: 600, color: "#e0954a" }}>{fmt(upcomingTotal)}</span>
+            background: t.surface, borderRadius: t.selRadius, padding: "10px 14px",
+            border: `1px solid ${t.border}`, boxShadow: t.shadow }}>
+            <span style={{ fontSize: 11, color: t.textMuted, letterSpacing: "0.08em", textTransform: "uppercase", fontWeight: 500 }}>
+              Upcoming this month
+            </span>
+            <span style={{ fontSize: 15, fontWeight: 600, color: t.billingAccent }}>{fmt(upcomingTotal)}</span>
           </div>
         )}
 
-        {/* Add subscription form */}
-        <div style={{ background: "#1a1a1a", borderRadius: 10, padding: "12px 14px",
-          display: "flex", flexDirection: "column", gap: 8, border: "1px solid #1e1e1e" }}>
-          <div style={{ fontSize: 10, color: "#555", letterSpacing: "0.12em", textTransform: "uppercase" }}>Add Subscription</div>
-          <input
-            style={{ ...styles.input, fontSize: 14 }}
-            type="text"
-            placeholder="Name (e.g. Netflix)"
-            value={subName}
-            maxLength={60}
-            disabled={subSaving}
-            onChange={e => setSubName(e.target.value)}
-          />
+        {/* Add subscription */}
+        <div style={{ background: t.surface, borderRadius: t.cardRadius, padding: "14px",
+          display: "flex", flexDirection: "column", gap: 8, border: `1px solid ${t.border}`, boxShadow: t.shadow }}>
+          <div style={s.sectionLabel}>Add Subscription</div>
+          <input style={{ ...s.input, fontSize: 14 }} type="text" placeholder="Name (e.g. Netflix)"
+            value={subName} maxLength={60} disabled={subSaving} onChange={e => setSubName(e.target.value)} />
           <div style={{ display: "flex", gap: 8 }}>
-            <input
-              style={{ ...styles.input, fontSize: 14, flex: 2 }}
-              type="number"
-              inputMode="decimal"
-              placeholder="Amount"
-              value={subAmount}
-              min="0"
-              disabled={subSaving}
-              onChange={e => setSubAmount(e.target.value)}
-            />
-            <input
-              style={{ ...styles.input, fontSize: 14, flex: 1 }}
-              type="number"
-              inputMode="numeric"
-              placeholder="Day"
-              value={subDay}
-              min="1"
-              max="31"
-              disabled={subSaving}
-              onChange={e => setSubDay(e.target.value)}
-            />
+            <input style={{ ...s.input, fontSize: 14, flex: 2 }} type="number" inputMode="decimal"
+              placeholder="Amount" value={subAmount} min="0" disabled={subSaving} onChange={e => setSubAmount(e.target.value)} />
+            <input style={{ ...s.input, fontSize: 14, flex: 1 }} type="number" inputMode="numeric"
+              placeholder="Day" value={subDay} min="1" max="31" disabled={subSaving} onChange={e => setSubDay(e.target.value)} />
           </div>
-          <button
-            onClick={addSub}
-            disabled={subSaving}
-            style={{ ...styles.btn, background: "#1e2e1e", color: "#6bffb8", fontSize: 14,
+          <button className="kb-btn" onClick={addSub} disabled={subSaving}
+            style={{ ...s.btn, background: t.accentSoft, color: t.accent, fontSize: 14,
               padding: "10px 0", opacity: subSaving ? 0.5 : 1 }}>
             + Add Subscription
           </button>
         </div>
 
-        {/* Active subscriptions list */}
+        {/* Active subscriptions */}
         {!calLoading && subs.length > 0 && (
           <div>
-            <div style={{ fontSize: 10, color: "#555", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>
-              Active Subscriptions
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              {subs.map(s => (
-                <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-                  background: "#1a1a1a", borderRadius: 8, padding: "9px 14px" }}>
+            <div style={s.sectionLabel}>Active Subscriptions</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              {subs.map(sub => (
+                <div key={sub.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+                  background: t.surface, borderRadius: t.selRadius, padding: "9px 14px",
+                  border: `1px solid ${t.border}` }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ fontSize: 11, color: "#e0954a", fontWeight: 600, minWidth: 24, textAlign: "right" }}>
-                      {s.day_of_month}
+                    <span style={{ fontSize: 11, color: t.billingAccent, fontWeight: 600, minWidth: 24, textAlign: "right" }}>
+                      {sub.day_of_month}
                     </span>
-                    <span style={{ fontSize: 14, color: "#e2e2e2" }}>{s.name}</span>
+                    <span style={{ fontSize: 14, color: t.text }}>{sub.name}</span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: "#ff6b6b" }}>-{fmt(s.amount)}</span>
-                    <button onClick={() => deleteSub(s.id)}
-                      style={{ background: "none", border: "none", color: "#4a2020", fontSize: 18, cursor: "pointer", padding: "4px 6px", lineHeight: 1 }}>
-                      ×
-                    </button>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: t.negative }}>-{fmt(sub.amount)}</span>
+                    <button onClick={() => deleteSub(sub.id)}
+                      style={{ background: "none", border: "none", color: t.deleteColor, fontSize: 18, cursor: "pointer", padding: "4px 6px", lineHeight: 1 }}>×</button>
                   </div>
                 </div>
               ))}
@@ -873,105 +872,80 @@ function CalendarView({ entries, now, supabase }) {
         )}
 
         {calLoading && (
-          <div style={{ fontSize: 13, color: "#333", textAlign: "center", padding: "20px 0" }}>Loading…</div>
+          <div style={{ fontSize: 13, color: t.textFaint, textAlign: "center", padding: "20px 0" }}>Loading…</div>
         )}
-
       </div>
     </div>
   );
 }
 
+// ─── EditCountdownModal ───────────────────────────────────────────────────────
 function EditCountdownModal({ countdown, onSave, onClose }) {
+  const t = useTheme();
+  const s = useStyles();
   const existing = new Date(countdown.due_at);
-  const pad2 = (n) => String(n).padStart(2, "0");
-  const initDate = `${existing.getFullYear()}-${pad2(existing.getMonth() + 1)}-${pad2(existing.getDate())}`;
-  const initTime = `${pad2(existing.getHours())}:${pad2(existing.getMinutes())}`;
-
+  const pad2 = n => String(n).padStart(2,"0");
   const [label, setLabel] = useState(countdown.label);
-  const [dueDate, setDueDate] = useState(initDate);
-  const [dueTime, setDueTime] = useState(initTime);
+  const [dueDate, setDueDate] = useState(`${existing.getFullYear()}-${pad2(existing.getMonth()+1)}-${pad2(existing.getDate())}`);
+  const [dueTime, setDueTime] = useState(`${pad2(existing.getHours())}:${pad2(existing.getMinutes())}`);
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
     const trimLabel = label.trim();
     if (!trimLabel || !dueDate) return;
-    const timeStr = dueTime || "00:00";
-    const due = new Date(`${dueDate}T${timeStr}:00`);
+    const due = new Date(`${dueDate}T${dueTime||"00:00"}:00`);
     if (isNaN(due.getTime())) return;
     setSaving(true);
     await onSave(countdown.id, trimLabel, due.toISOString());
-    setSaving(false);
-    onClose();
+    setSaving(false); onClose();
   };
 
   return (
-    <div
-      onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.72)", zIndex: 500,
-        display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-      <div style={{ width: "100%", maxWidth: 480, background: "#141414",
-        borderRadius: "16px 16px 0 0", padding: "20px 20px 36px",
-        border: "1px solid #2a2a2a", borderBottom: "none",
-        display: "flex", flexDirection: "column", gap: 12 }}>
+    <div onPointerDown={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: "fixed", inset: 0, background: t.modalBg, zIndex: 500,
+        display: "flex", alignItems: "flex-end", justifyContent: "center",
+        backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}>
+      <div className="kb-slide-up"
+        style={{ width: "100%", maxWidth: 480, background: t.surface,
+          borderRadius: `${t.cardRadius*1.2}px ${t.cardRadius*1.2}px 0 0`,
+          padding: "20px 20px 40px",
+          border: `1px solid ${t.border}`, borderBottom: "none",
+          boxShadow: t.shadow2,
+          display: "flex", flexDirection: "column", gap: 12 }}>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-          <span style={{ fontSize: 12, color: "#555", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+          <span style={{ fontSize: 11, color: t.textMuted, letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 600 }}>
             Edit Countdown
           </span>
           <button onPointerDown={onClose}
-            style={{ background: "none", border: "none", color: "#444", fontSize: 22, cursor: "pointer",
-              padding: "0 2px", lineHeight: 1 }}>×</button>
+            style={{ background: "none", border: "none", color: t.textFaint, fontSize: 22, cursor: "pointer", padding: "0 2px", lineHeight: 1 }}>×</button>
         </div>
 
-        <input
-          style={{ background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 10,
-            color: "#e2e2e2", fontSize: 15, padding: "12px 16px", outline: "none",
-            width: "100%", boxSizing: "border-box" }}
-          type="text"
-          placeholder="Event name"
-          value={label}
-          maxLength={80}
-          disabled={saving}
-          onChange={(e) => setLabel(e.target.value)}
-        />
+        <input style={{ ...s.input, fontSize: 15 }} type="text" placeholder="Event name"
+          value={label} maxLength={80} disabled={saving} onChange={e => setLabel(e.target.value)} />
 
         <div style={{ display: "flex", gap: 8 }}>
-          <input
-            style={{ background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 10,
-              color: "#e2e2e2", fontSize: 14, padding: "12px 16px", outline: "none",
-              flex: 3, boxSizing: "border-box" }}
-            type="date"
-            value={dueDate}
-            disabled={saving}
-            onChange={(e) => setDueDate(e.target.value)}
-          />
-          <input
-            style={{ background: "#1a1a1a", border: "1px solid #2a2a2a", borderRadius: 10,
-              color: "#e2e2e2", fontSize: 14, padding: "12px 16px", outline: "none",
-              flex: 2, boxSizing: "border-box" }}
-            type="time"
-            value={dueTime}
-            disabled={saving}
-            onChange={(e) => setDueTime(e.target.value)}
-          />
+          <input style={{ ...s.input, fontSize: 14, flex: 3 }} type="date"
+            value={dueDate} disabled={saving} onChange={e => setDueDate(e.target.value)} />
+          <input style={{ ...s.input, fontSize: 14, flex: 2 }} type="time"
+            value={dueTime} disabled={saving} onChange={e => setDueTime(e.target.value)} />
         </div>
 
-        <button
-          onPointerDown={handleSave}
+        <button className="kb-btn" onPointerDown={handleSave}
           disabled={saving || !label.trim() || !dueDate}
-          style={{ border: "none", borderRadius: 10, fontSize: 15, fontWeight: 600,
-            padding: "13px 0", cursor: (saving || !label.trim() || !dueDate) ? "default" : "pointer",
-            background: "#1a1a2e", color: "#8080ff",
+          style={{ ...s.btn, background: t.accentSoft, color: t.countdownAccent, fontSize: 15,
             opacity: (saving || !label.trim() || !dueDate) ? 0.4 : 1 }}>
           Save
         </button>
-
       </div>
     </div>
   );
 }
 
-function CountdownView({ supabase }) {
+// ─── CountdownView ────────────────────────────────────────────────────────────
+function CountdownView() {
+  const t = useTheme();
+  const s = useStyles();
   const [countdowns, setCountdowns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [label, setLabel] = useState("");
@@ -981,22 +955,16 @@ function CountdownView({ supabase }) {
   const [tick, setTick] = useState(0);
   const [editingCountdown, setEditingCountdown] = useState(null);
 
-  // Tick every minute to refresh countdowns
   useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 60000);
+    const id = setInterval(() => setTick(x => x+1), 60000);
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    fetchCountdowns();
-  }, []);
+  useEffect(() => { fetchCountdowns(); }, []);
 
   const fetchCountdowns = async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("countdowns")
-      .select("*")
-      .order("due_at", { ascending: true });
+    const { data } = await supabase.from("countdowns").select("*").order("due_at",{ascending:true});
     if (data) setCountdowns(data);
     setLoading(false);
   };
@@ -1004,181 +972,173 @@ function CountdownView({ supabase }) {
   const addCountdown = async () => {
     const trimLabel = label.trim();
     if (!trimLabel || !dueDate) return;
-    const timeStr = dueTime || "00:00";
-    const due = new Date(`${dueDate}T${timeStr}:00`);
+    const due = new Date(`${dueDate}T${dueTime||"00:00"}:00`);
     if (isNaN(due.getTime())) return;
-
     setSaving(true);
-    const { data, error } = await supabase
-      .from("countdowns")
-      .insert({ label: trimLabel, due_at: due.toISOString() })
-      .select()
-      .single();
-
+    const { data, error } = await supabase.from("countdowns")
+      .insert({ label: trimLabel, due_at: due.toISOString() }).select().single();
     if (data) {
-      setCountdowns(prev => [...prev, data].sort((a, b) => new Date(a.due_at) - new Date(b.due_at)));
-      setLabel("");
-      setDueDate("");
-      setDueTime("");
+      setCountdowns(prev => [...prev, data].sort((a,b) => new Date(a.due_at)-new Date(b.due_at)));
+      setLabel(""); setDueDate(""); setDueTime("");
     } else if (error) {
-      // Table may not exist yet — surface the error so user knows to create it
-      alert("Could not save. Make sure the 'countdowns' table exists in Supabase.\n\nSQL:\nCREATE TABLE countdowns (\n  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),\n  label text NOT NULL,\n  due_at timestamptz NOT NULL,\n  created_at timestamptz DEFAULT now()\n);");
+      alert("Could not save. Make sure the 'countdowns' table exists in Supabase.");
     }
     setSaving(false);
   };
 
-  const deleteCountdown = async (id) => {
+  const deleteCountdown = async id => {
     setCountdowns(prev => prev.filter(c => c.id !== id));
-    await supabase.from("countdowns").delete().eq("id", id);
+    await supabase.from("countdowns").delete().eq("id",id);
   };
 
   const updateCountdown = async (id, newLabel, newDueAt) => {
     setCountdowns(prev =>
-      prev.map(c => c.id === id ? { ...c, label: newLabel, due_at: newDueAt } : c)
-         .sort((a, b) => new Date(a.due_at) - new Date(b.due_at))
+      prev.map(c => c.id === id ? {...c, label: newLabel, due_at: newDueAt} : c)
+        .sort((a,b) => new Date(a.due_at)-new Date(b.due_at))
     );
-    await supabase.from("countdowns").update({ label: newLabel, due_at: newDueAt }).eq("id", id);
+    await supabase.from("countdowns").update({ label: newLabel, due_at: newDueAt }).eq("id",id);
   };
 
-  const formatRemaining = (due_at) => {
-    const now = new Date();
-    const due = new Date(due_at);
-    const diff = due - now;
-    if (diff <= 0) return { expired: true, text: "Expired" };
+  const formatRemaining = due_at => {
+    const diff = new Date(due_at) - new Date();
+    if (diff <= 0) return { expired: true };
     const totalMins = Math.floor(diff / 60000);
-    const days = Math.floor(totalMins / 1440);
-    const hours = Math.floor((totalMins % 1440) / 60);
-    const mins = totalMins % 60;
-    return { expired: false, days, hours, mins };
+    return {
+      expired: false,
+      days: Math.floor(totalMins / 1440),
+      hours: Math.floor((totalMins % 1440) / 60),
+      mins: totalMins % 60,
+    };
   };
 
-  const fmtDueDate = (due_at) => {
+  const fmtDueDate = due_at => {
     const d = new Date(due_at);
-    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) +
-      " at " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    return d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) +
+      " at " + d.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
+  };
+
+  const totalMs = (due_at, created_at) => {
+    const c = created_at ? new Date(created_at) : new Date(new Date(due_at) - 30*24*60*60*1000);
+    return Math.max(1, new Date(due_at) - c);
   };
 
   return (
     <>
     {editingCountdown && (
-      <EditCountdownModal
-        countdown={editingCountdown}
-        onSave={updateCountdown}
-        onClose={() => setEditingCountdown(null)}
-      />
+      <EditCountdownModal countdown={editingCountdown} onSave={updateCountdown} onClose={() => setEditingCountdown(null)} />
     )}
-    <div style={{ ...styles.root, paddingBottom: 90 }}>
-      <div style={styles.card}>
+    <div style={{ ...s.root, paddingBottom: 90 }}>
+      <div style={s.card}>
 
-        <div style={styles.dateHeader}>Countdowns</div>
+        <div style={{ fontSize: 13, color: t.textMuted, fontWeight: 500, letterSpacing: "0.01em", marginBottom: 4 }}>
+          Countdowns
+        </div>
 
         {/* Add form */}
-        <div style={{ background: "#1a1a1a", borderRadius: 10, padding: "12px 14px",
-          display: "flex", flexDirection: "column", gap: 8, border: "1px solid #1e1e1e" }}>
-          <div style={{ fontSize: 10, color: "#555", letterSpacing: "0.12em", textTransform: "uppercase" }}>New Countdown</div>
-          <input
-            style={{ ...styles.input, fontSize: 14 }}
-            type="text"
+        <div style={{ background: t.surface, borderRadius: t.cardRadius, padding: "14px",
+          display: "flex", flexDirection: "column", gap: 8,
+          border: `1px solid ${t.border}`, boxShadow: t.shadow }}>
+          <div style={s.sectionLabel}>New Countdown</div>
+          <input style={{ ...s.input, fontSize: 14 }} type="text"
             placeholder="Event name (e.g. Jiu Jitsu Competition)"
-            value={label}
-            maxLength={80}
-            disabled={saving}
+            value={label} maxLength={80} disabled={saving}
             onChange={e => setLabel(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter") addCountdown(); }}
-          />
+            onKeyDown={e => { if (e.key === "Enter") addCountdown(); }} />
           <div style={{ display: "flex", gap: 8 }}>
-            <input
-              style={{ ...styles.input, fontSize: 14, flex: 3 }}
-              type="date"
-              value={dueDate}
-              disabled={saving}
-              onChange={e => setDueDate(e.target.value)}
-            />
-            <input
-              style={{ ...styles.input, fontSize: 14, flex: 2 }}
-              type="time"
-              value={dueTime}
-              disabled={saving}
-              onChange={e => setDueTime(e.target.value)}
-            />
+            <input style={{ ...s.input, fontSize: 14, flex: 3 }} type="date"
+              value={dueDate} disabled={saving} onChange={e => setDueDate(e.target.value)} />
+            <input style={{ ...s.input, fontSize: 14, flex: 2 }} type="time"
+              value={dueTime} disabled={saving} onChange={e => setDueTime(e.target.value)} />
           </div>
-          <button
-            onClick={addCountdown}
+          <button className="kb-btn" onClick={addCountdown}
             disabled={saving || !label.trim() || !dueDate}
-            style={{ ...styles.btn, background: "#1a1a2e", color: "#8080ff", fontSize: 14,
+            style={{ ...s.btn, background: t.accentSoft, color: t.countdownAccent, fontSize: 14,
               padding: "10px 0", opacity: (saving || !label.trim() || !dueDate) ? 0.4 : 1 }}>
             + Add Countdown
           </button>
         </div>
 
-        {/* Countdown cards */}
+        {/* Cards */}
         {loading ? (
-          <div style={{ fontSize: 13, color: "#333", textAlign: "center", padding: "20px 0" }}>Loading…</div>
+          <div style={{ fontSize: 13, color: t.textFaint, textAlign: "center", padding: "20px 0" }}>Loading…</div>
         ) : countdowns.length === 0 ? (
-          <div style={{ fontSize: 13, color: "#333", textAlign: "center", padding: "20px 0" }}>No countdowns yet</div>
+          <div style={{ fontSize: 13, color: t.textFaint, textAlign: "center", padding: "20px 0" }}>No countdowns yet</div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {countdowns.map(c => {
               const rem = formatRemaining(c.due_at);
+              const pct = rem.expired ? 1 : Math.max(0, 1 - (new Date(c.due_at)-new Date()) / totalMs(c.due_at, c.created_at));
+
               return (
-                <div key={c.id}
+                <div key={c.id} className="kb-fade-in"
                   onClick={() => setEditingCountdown(c)}
-                  style={{ background: "#1a1a1a", border: "1px solid #1e1e1e",
-                    borderRadius: 12, padding: "14px 14px 12px", cursor: "pointer" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-                    <span style={{ fontSize: 15, fontWeight: 600, color: "#e2e2e2", flex: 1, paddingRight: 8 }}>{c.label}</span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); deleteCountdown(c.id); }}
-                      style={{ background: "none", border: "none", color: "#4a2020", fontSize: 18,
+                  style={{ background: t.surface, border: `1px solid ${t.border}`,
+                    borderRadius: t.cardRadius, padding: "16px 14px 14px",
+                    cursor: "pointer", boxShadow: t.shadow,
+                    transition: "box-shadow 0.2s ease" }}>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+                    <span style={{ fontSize: 15, fontWeight: 600, color: t.text, flex: 1, paddingRight: 8 }}>
+                      {c.label}
+                    </span>
+                    <button onClick={e => { e.stopPropagation(); deleteCountdown(c.id); }}
+                      style={{ background: "none", border: "none", color: t.deleteColor, fontSize: 18,
                         cursor: "pointer", padding: "0 0 0 6px", lineHeight: 1, flexShrink: 0 }}>×</button>
                   </div>
-                  <div style={{ fontSize: 11, color: "#444", marginBottom: 10 }}>{fmtDueDate(c.due_at)}</div>
+
+                  <div style={{ fontSize: 11, color: t.textFaint, marginBottom: 12 }}>{fmtDueDate(c.due_at)}</div>
+
                   {rem.expired ? (
-                    <div style={{ fontSize: 13, color: "#555", fontStyle: "italic" }}>Expired</div>
+                    <div style={{ fontSize: 13, color: t.textFaint, fontStyle: "italic" }}>Expired</div>
                   ) : (
-                    <div style={{ display: "flex", gap: 8 }}>
-                      {[
-                        { val: rem.days, unit: "days" },
-                        { val: rem.hours, unit: "hrs" },
-                        { val: rem.mins, unit: "min" },
-                      ].map(({ val, unit }) => (
-                        <div key={unit} style={{ flex: 1, background: "#141414", borderRadius: 8,
-                          padding: "8px 0", textAlign: "center", border: "1px solid #1e1e1e" }}>
-                          <div style={{ fontSize: 22, fontWeight: 700, color: "#8080ff",
-                            fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>
-                            {val}
+                    <>
+                      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                        {[{val:rem.days,unit:"days"},{val:rem.hours,unit:"hrs"},{val:rem.mins,unit:"min"}].map(({val,unit}) => (
+                          <div key={unit} style={{ flex: 1, background: t.surface2, borderRadius: t.selRadius,
+                            padding: "10px 0", textAlign: "center", border: `1px solid ${t.border}` }}>
+                            <div style={{ fontSize: 24, fontWeight: 700, color: t.countdownAccent,
+                              fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" }}>
+                              {val}
+                            </div>
+                            <div style={{ fontSize: 9, color: t.textFaint, letterSpacing: "0.1em",
+                              textTransform: "uppercase", marginTop: 2 }}>{unit}</div>
                           </div>
-                          <div style={{ fontSize: 9, color: "#444", letterSpacing: "0.1em",
-                            textTransform: "uppercase", marginTop: 2 }}>{unit}</div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+
+                      {/* Progress bar */}
+                      <div style={{ height: 3, background: t.border2, borderRadius: 2, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${pct*100}%`,
+                          background: t.countdownAccent, borderRadius: 2,
+                          transition: "width 0.8s ease" }} />
+                      </div>
+                    </>
                   )}
                 </div>
               );
             })}
           </div>
         )}
-
       </div>
     </div>
     </>
   );
 }
 
+// ─── PinLock ──────────────────────────────────────────────────────────────────
 const CORRECT_PIN = "0204";
-
 function PinLock({ onUnlock }) {
+  const t = useTheme();
   const [digits, setDigits] = useState([]);
   const [shake, setShake] = useState(false);
 
-  const press = (d) => {
+  const press = d => {
     if (digits.length >= 4) return;
     const next = [...digits, d];
     setDigits(next);
     if (next.length === 4) {
       if (next.join("") === CORRECT_PIN) {
-        sessionStorage.setItem("kb_unlocked", "1");
+        sessionStorage.setItem("kb_unlocked","1");
         onUnlock();
       } else {
         setShake(true);
@@ -1187,64 +1147,43 @@ function PinLock({ onUnlock }) {
     }
   };
 
-  const backspace = () => { setDigits(prev => prev.slice(0, -1)); };
-
   const keys = [1,2,3,4,5,6,7,8,9,null,0,"del"];
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#0f0f0f", zIndex: 9999,
+    <div style={{ position: "fixed", inset: 0, background: t.bgGradient, zIndex: 9999,
       display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-      fontFamily: "'Inter', 'Segoe UI', sans-serif", gap: 48 }}>
+      fontFamily: "'Inter','Segoe UI',sans-serif", gap: 48 }}>
 
-      <div style={{ fontSize: 13, color: "#444", letterSpacing: "0.18em", textTransform: "uppercase" }}>
+      <div style={{ fontSize: 12, color: t.textMuted, letterSpacing: "0.2em", textTransform: "uppercase", fontWeight: 500 }}>
         Kingdom Builder
       </div>
 
-      {/* Dot display */}
-      <div style={{
-        display: "flex", gap: 16, alignItems: "center",
-        animation: shake ? "kb-shake 0.5s ease" : "none",
-      }}>
-        <style>{`
-          @keyframes kb-shake {
-            0%,100%{transform:translateX(0)}
-            15%{transform:translateX(-8px)}
-            30%{transform:translateX(8px)}
-            45%{transform:translateX(-6px)}
-            60%{transform:translateX(6px)}
-            75%{transform:translateX(-3px)}
-            90%{transform:translateX(3px)}
-          }
-        `}</style>
+      <div style={{ display: "flex", gap: 16, alignItems: "center",
+        animation: shake ? "kb-shake 0.5s ease" : "none" }}>
         {[0,1,2,3].map(i => (
-          <div key={i} style={{
-            width: 14, height: 14, borderRadius: "50%",
-            background: i < digits.length ? "#8080ff" : "transparent",
-            border: `2px solid ${i < digits.length ? "#8080ff" : "#2a2a2a"}`,
+          <div key={i} style={{ width: 14, height: 14, borderRadius: "50%",
+            background: i < digits.length ? t.pinDot : t.pinDotEmpty,
+            border: `2px solid ${i < digits.length ? t.pinDot : t.pinDotBorder}`,
             transition: "background 0.1s, border-color 0.1s",
+            boxShadow: i < digits.length ? `0 0 8px ${t.pinDot}60` : "none",
           }} />
         ))}
       </div>
 
-      {/* Number pad */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 72px)", gap: 12 }}>
-        {keys.map((k, i) => {
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,72px)", gap: 12 }}>
+        {keys.map((k,i) => {
           if (k === null) return <div key={i} />;
           const isDel = k === "del";
           return (
-            <button key={i}
-              onPointerDown={() => isDel ? backspace() : press(k)}
-              style={{
-                width: 72, height: 72, borderRadius: "50%",
-                background: isDel ? "transparent" : "#1a1a1a",
-                border: isDel ? "none" : "1px solid #222",
-                color: isDel ? "#555" : "#e2e2e2",
-                fontSize: isDel ? 20 : 26,
-                fontWeight: 500,
-                cursor: "pointer",
-                fontFamily: "'Inter', 'Segoe UI', sans-serif",
+            <button key={i} className="kb-btn" onPointerDown={() => isDel ? setDigits(p => p.slice(0,-1)) : press(k)}
+              style={{ width: 72, height: 72, borderRadius: "50%",
+                background: isDel ? "transparent" : t.surface,
+                border: isDel ? "none" : `1px solid ${t.border2}`,
+                color: isDel ? t.textFaint : t.text,
+                fontSize: isDel ? 20 : 26, fontWeight: 500,
+                cursor: "pointer", fontFamily: "'Inter','Segoe UI',sans-serif",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                WebkitTapHighlightColor: "transparent",
+                boxShadow: isDel ? "none" : t.shadow,
                 userSelect: "none",
               }}>
               {isDel ? "⌫" : k}
@@ -1256,7 +1195,84 @@ function PinLock({ onUnlock }) {
   );
 }
 
+// ─── ThemeSelector ────────────────────────────────────────────────────────────
+function ThemeSelector({ onSelect, onClose }) {
+  const t = useTheme();
+  const items = THEME_ORDER.map(id => THEMES[id]);
+
+  return (
+    <div onPointerDown={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: "fixed", inset: 0, background: t.modalBg, zIndex: 600,
+        display: "flex", alignItems: "flex-end", justifyContent: "center",
+        backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}>
+      <div className="kb-slide-up"
+        style={{ width: "100%", maxWidth: 480, background: t.surface,
+          borderRadius: `${t.cardRadius*1.3}px ${t.cardRadius*1.3}px 0 0`,
+          padding: "24px 20px 48px",
+          border: `1px solid ${t.border}`, borderBottom: "none",
+          boxShadow: t.shadow2 }}>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <span style={{ fontSize: 11, color: t.textMuted, letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 600 }}>
+            Appearance
+          </span>
+          <button onPointerDown={onClose}
+            style={{ background: "none", border: "none", color: t.textFaint, fontSize: 22, cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>×</button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          {items.map(th => {
+            const isActive = th.id === t.id;
+            return (
+              <div key={th.id} className="kb-btn"
+                onPointerDown={() => { onSelect(th.id); onClose(); }}
+                style={{ background: th.bg, borderRadius: th.cardRadius, padding: "14px",
+                  cursor: "pointer", position: "relative", overflow: "hidden",
+                  border: isActive ? `2px solid ${th.accent}` : `1px solid ${th.border2}`,
+                  boxShadow: isActive ? `0 0 0 3px ${th.accentSoft}, ${th.shadow}` : th.shadow,
+                }}>
+
+                <div style={{ fontSize: 12, fontWeight: 600, color: th.text, marginBottom: 10,
+                  letterSpacing: "0.01em", fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+                  {th.name}
+                </div>
+
+                <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
+                  {[th.accent, th.positive, th.negative, th.surface2].map((col,i) => (
+                    <div key={i} style={{ width: 12, height: 12, borderRadius: "50%", background: col,
+                      border: `1px solid ${th.border}` }} />
+                  ))}
+                </div>
+
+                <div style={{ background: th.surface, borderRadius: th.selRadius, padding: "6px 10px",
+                  border: `1px solid ${th.border}` }}>
+                  <div style={{ fontSize: 8, color: th.textFaint, letterSpacing: "0.1em", fontFamily: "'Inter','Segoe UI',sans-serif" }}>BALANCE</div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: th.positive, letterSpacing: "-0.02em",
+                    fontFamily: "'Inter','Segoe UI',sans-serif" }}>$1,234</div>
+                </div>
+
+                {isActive && (
+                  <div style={{ position: "absolute", top: 10, right: 10,
+                    width: 18, height: 18, borderRadius: "50%",
+                    background: th.accent, display: "flex", alignItems: "center", justifyContent: "center",
+                    boxShadow: `0 0 6px ${th.accentSoft}` }}>
+                    <span style={{ color: th.accentText, fontSize: 10, fontWeight: 700 }}>✓</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── App ──────────────────────────────────────────────────────────────────────
 export default function App() {
+  const [themeId, setThemeId] = useState(() => localStorage.getItem("kb_theme") || "nightInk");
+  const theme = THEMES[themeId] || THEMES.nightInk;
+
   const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem("kb_unlocked") === "1");
   const [activeTab, setActiveTab] = useState("balance");
   const [entries, setEntries] = useState([]);
@@ -1268,8 +1284,16 @@ export default function App() {
   const [showReset, setShowReset] = useState(false);
   const [error, setError] = useState(null);
   const [now, setNow] = useState(new Date());
-  const [selectedDay, setSelectedDay] = useState(null);
+  const [selectedDay, setSelectedDay] = useState(() => new Date());
   const [editingEntry, setEditingEntry] = useState(null);
+  const [showThemePicker, setShowThemePicker] = useState(false);
+
+  const selectTheme = id => {
+    document.documentElement.classList.add("kb-theme-transition");
+    setTimeout(() => document.documentElement.classList.remove("kb-theme-transition"), 500);
+    setThemeId(id);
+    localStorage.setItem("kb_theme", id);
+  };
 
   useEffect(() => { fetchEntries(); }, []);
 
@@ -1277,515 +1301,256 @@ export default function App() {
     let timer;
     const schedule = () => {
       const n = new Date();
-      const midnight = new Date(n);
-      midnight.setHours(24, 0, 0, 0);
-      timer = setTimeout(() => {
-        setNow(new Date());
-        setSelectedDay(null);
-        schedule();
-      }, midnight - n);
+      const midnight = new Date(n); midnight.setHours(24,0,0,0);
+      timer = setTimeout(() => { setNow(new Date()); setSelectedDay(new Date()); schedule(); }, midnight-n);
     };
     schedule();
     return () => clearTimeout(timer);
   }, []);
 
-  const fetchEntries = async () => {
-    setLoading(true);
-    setError(null);
-    const { data, error } = await supabase
-      .from("money_entries")
-      .select("*")
-      .order("created_at", { ascending: false });
+  const weekSundayOf = d => {
+    const s = new Date(d); s.setDate(d.getDate()-d.getDay()); s.setHours(0,0,0,0); return s;
+  };
 
-    if (error) {
-      setError(error.message);
-    } else if (data) {
+  const fetchEntries = async () => {
+    setLoading(true); setError(null);
+    const { data, error: err } = await supabase.from("money_entries").select("*").order("created_at",{ascending:false});
+    if (err) { setError(err.message); }
+    else if (data) {
       setEntries(data);
-      // Balance = current week only (Sunday 00:00 through Saturday 23:59)
-      const weekSunday = new Date();
-      weekSunday.setDate(weekSunday.getDate() - weekSunday.getDay());
-      weekSunday.setHours(0, 0, 0, 0);
-      setBalance(data.filter(e => entryDate(e) >= weekSunday).reduce((sum, e) => sum + Number(e.change), 0));
+      const ws = weekSundayOf(new Date());
+      setBalance(data.filter(e => entryDate(e) >= ws).reduce((sum,e) => sum+Number(e.change), 0));
     }
     setLoading(false);
   };
 
-  const apply = async (sign) => {
+  const apply = async sign => {
     const val = parseFloat(amount);
     if (!val || isNaN(val) || val <= 0) return;
-    setSaving(true);
-    setError(null);
-
+    setSaving(true); setError(null);
     const targetDate = selectedDay || now;
-    const optimistic = {
-      id: crypto.randomUUID(),
-      change: sign * val,
-      note: note.trim() || null,
-      ts: targetDate.toISOString(),
-      created_at: targetDate.toISOString(),
-    };
-
-    setEntries((prev) => [optimistic, ...prev]);
-    // Only affect the displayed balance if this entry falls in the current week
-    const weekSundayNow = new Date();
-    weekSundayNow.setDate(weekSundayNow.getDate() - weekSundayNow.getDay());
-    weekSundayNow.setHours(0, 0, 0, 0);
-    if (new Date(optimistic.ts) >= weekSundayNow) {
-      setBalance((prev) => prev + optimistic.change);
-    }
-    setAmount("");
-    setNote("");
-
-    const { data, error } = await supabase
-      .from("money_entries")
-      .insert({
-        change: optimistic.change,
-        note: optimistic.note,
-        ts: optimistic.ts,
-        created_at: optimistic.created_at,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      setError("Not saved to cloud: " + error.message);
-    } else if (data) {
-      // Swap optimistic entry for the real one from Supabase
-      setEntries((prev) => prev.map((e) => (e.id === optimistic.id ? data : e)));
-    }
+    const optimistic = { id: crypto.randomUUID(), change: sign*val, note: note.trim()||null,
+      ts: targetDate.toISOString(), created_at: targetDate.toISOString() };
+    setEntries(prev => [optimistic, ...prev]);
+    const ws = weekSundayOf(new Date());
+    if (new Date(optimistic.ts) >= ws) setBalance(prev => prev+optimistic.change);
+    setAmount(""); setNote("");
+    const { data, error: err } = await supabase.from("money_entries")
+      .insert({ change: optimistic.change, note: optimistic.note, ts: optimistic.ts, created_at: optimistic.created_at })
+      .select().single();
+    if (err) setError("Not saved: "+err.message);
+    else if (data) setEntries(prev => prev.map(e => e.id===optimistic.id ? data : e));
     setSaving(false);
   };
 
   const reset = async () => {
-    setSaving(true);
-    setError(null);
-    const { error } = await supabase
-      .from("money_entries")
-      .delete()
-      .neq("id", "00000000-0000-0000-0000-000000000000");
-    if (error) {
-      setError(error.message);
-    } else {
-      setEntries([]);
-      setBalance(0);
-    }
-    setShowReset(false);
-    setSaving(false);
+    setSaving(true); setError(null);
+    const { error: err } = await supabase.from("money_entries").delete()
+      .neq("id","00000000-0000-0000-0000-000000000000");
+    if (err) setError(err.message);
+    else { setEntries([]); setBalance(0); }
+    setShowReset(false); setSaving(false);
   };
 
-  const deleteEntry = async (id) => {
-    const target = entries.find(e => e.id === id);
+  const deleteEntry = async id => {
+    const target = entries.find(e => e.id===id);
     if (!target) return;
-    setEntries(prev => prev.filter(e => e.id !== id));
-    // Only adjust balance if the deleted entry is in the current week
-    const weekSundayDel = new Date();
-    weekSundayDel.setDate(weekSundayDel.getDate() - weekSundayDel.getDay());
-    weekSundayDel.setHours(0, 0, 0, 0);
-    if (entryDate(target) >= weekSundayDel) {
-      setBalance(prev => prev - Number(target.change));
-    }
-    await supabase.from("money_entries").delete().eq("id", id);
+    setEntries(prev => prev.filter(e => e.id!==id));
+    const ws = weekSundayOf(new Date());
+    if (entryDate(target) >= ws) setBalance(prev => prev-Number(target.change));
+    await supabase.from("money_entries").delete().eq("id",id);
   };
 
   const updateEntry = async (id, newChange, newNote) => {
-    const weekSundayUpd = new Date();
-    weekSundayUpd.setDate(weekSundayUpd.getDate() - weekSundayUpd.getDay());
-    weekSundayUpd.setHours(0, 0, 0, 0);
-
-    const prev = entries.find(e => e.id === id);
+    const ws = weekSundayOf(new Date());
+    const prev = entries.find(e => e.id===id);
     if (!prev) return;
-
-    // Optimistically update local state
-    setEntries(list => list.map(e => e.id === id ? { ...e, change: newChange, note: newNote } : e));
-    // Adjust balance only if the entry is in the current week
-    if (entryDate(prev) >= weekSundayUpd) {
-      setBalance(b => b - Number(prev.change) + newChange);
-    }
-
-    await supabase.from("money_entries").update({ change: newChange, note: newNote }).eq("id", id);
+    setEntries(list => list.map(e => e.id===id ? {...e, change: newChange, note: newNote} : e));
+    if (entryDate(prev) >= ws) setBalance(b => b-Number(prev.change)+newChange);
+    await supabase.from("money_entries").update({ change: newChange, note: newNote }).eq("id",id);
   };
 
-  const handleKey = (e) => { if (e.key === "Enter") apply(1); };
+  const handleKey = e => { if (e.key === "Enter") apply(1); };
 
-  if (!unlocked) return <PinLock onUnlock={() => setUnlocked(true)} />;
+  if (!unlocked) {
+    return (
+      <ThemeContext.Provider value={theme}>
+        <style>{GLOBAL_CSS}</style>
+        <PinLock onUnlock={() => setUnlocked(true)} />
+      </ThemeContext.Provider>
+    );
+  }
 
   return (
-    <>
-    {editingEntry && (
-      <EditEntryModal
-        entry={editingEntry}
-        onSave={updateEntry}
-        onDelete={deleteEntry}
-        onClose={() => setEditingEntry(null)}
-      />
-    )}
-    {/* MENTOR_HIDDEN: {activeTab === "mentor" && <MentorChat />} */}
-    {activeTab === "balance" && <div style={{ ...styles.root, paddingBottom: 90 }}>
-      <div style={styles.card}>
-        {error && <div style={styles.errorBox}>{error}</div>}
-        <div style={styles.dateHeader}>
-          {now.toLocaleDateString("en-US", { weekday: "long" })}
-          <span style={styles.dateDay}>
-            {" · "}{now.toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-          </span>
+    <ThemeContext.Provider value={theme}>
+      <style>{GLOBAL_CSS}</style>
+
+      {showThemePicker && <ThemeSelector onSelect={selectTheme} onClose={() => setShowThemePicker(false)} />}
+      {editingEntry && (
+        <EditEntryModal entry={editingEntry} onSave={updateEntry} onDelete={deleteEntry}
+          onClose={() => setEditingEntry(null)} />
+      )}
+
+      {/* ── Balance Tab ── */}
+      {activeTab === "balance" && (
+        <BalanceTab
+          theme={theme}
+          entries={entries} balance={balance} loading={loading} saving={saving}
+          error={error} now={now} selectedDay={selectedDay} setSelectedDay={setSelectedDay}
+          amount={amount} setAmount={setAmount} note={note} setNote={setNote}
+          apply={apply} reset={reset} showReset={showReset} setShowReset={setShowReset}
+          deleteEntry={deleteEntry} setEditingEntry={setEditingEntry}
+          onOpenThemePicker={() => setShowThemePicker(true)}
+          handleKey={handleKey}
+        />
+      )}
+
+      {activeTab === "calendar" && <CalendarView entries={entries} now={now} />}
+      {activeTab === "countdown" && <CountdownView />}
+
+      {/* ── Tab Bar ── */}
+      <TabBar theme={theme} activeTab={activeTab} setActiveTab={setActiveTab} onOpenThemePicker={() => setShowThemePicker(true)} />
+    </ThemeContext.Provider>
+  );
+}
+
+// ─── BalanceTab (extracted for clarity) ──────────────────────────────────────
+function BalanceTab({ entries, balance, loading, saving, error, now, selectedDay, setSelectedDay,
+  amount, setAmount, note, setNote, apply, reset, showReset, setShowReset,
+  deleteEntry, setEditingEntry, handleKey }) {
+  const t = useTheme();
+  const s = useStyles();
+
+  const displayDay = selectedDay || now;
+  const ds = new Date(displayDay); ds.setHours(0,0,0,0);
+  const de = new Date(displayDay); de.setHours(23,59,59,999);
+  const dayNet = entries
+    .filter(e => { const ts = entryDate(e); return ts >= ds && ts <= de; })
+    .reduce((sum,e) => sum+Number(e.change), 0);
+
+  return (
+    <div style={{ ...s.root, paddingBottom: 90 }}>
+      <div style={s.card}>
+        {error && <div style={s.errorBox}>{error}</div>}
+
+        {/* Date + day net */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div style={{ fontSize: 13, color: t.textMuted, fontWeight: 500, letterSpacing: "0.01em" }}>
+            {now.toLocaleDateString("en-US",{weekday:"long"})}
+            <span style={{ color: t.textFaint }}>
+              {" · "}{now.toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+            </span>
+          </div>
+          {!loading && (
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontSize: 10, color: t.textFaint, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 2 }}>
+                {displayDay.toLocaleDateString("en-US",{weekday:"long"})}
+              </div>
+              <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: "-0.02em",
+                color: dayNet < 0 ? t.negative : t.positive }}>
+                {dayNet > 0 ? "+" : ""}{fmt(dayNet)}
+              </div>
+            </div>
+          )}
         </div>
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-          <div>
-            <div style={styles.balanceLabel}>Balance</div>
-            {loading ? (
-              <div style={styles.loadingBalance}>—</div>
-            ) : (
-              <div style={{ ...styles.balance, color: balance < 0 ? "#ff6b6b" : "#e2e2e2" }}>
-                {fmt(balance)}
-              </div>
-            )}
+        {/* Balance */}
+        <div>
+          <div style={{ color: t.textFaint, fontSize: 10, letterSpacing: "0.14em",
+            textTransform: "uppercase", marginBottom: 4, fontWeight: 500 }}>
+            Balance
           </div>
-          {!loading && selectedDay && (() => {
-            const ds = new Date(selectedDay); ds.setHours(0, 0, 0, 0);
-            const de = new Date(selectedDay); de.setHours(23, 59, 59, 999);
-            const net = entries
-              .filter(e => { const t = entryDate(e); return t >= ds && t <= de; })
-              .reduce((s, e) => s + Number(e.change), 0);
-            return (
-              <div style={{ textAlign: "right", paddingBottom: 6 }}>
-                <div style={{ fontSize: 10, color: "#444", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 2 }}>
-                  {selectedDay.toLocaleDateString("en-US", { weekday: "long" })}
-                </div>
-                <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: "-0.02em", color: net < 0 ? "#ff6b6b" : "#6bffb8" }}>
-                  {net > 0 ? "+" : ""}{fmt(net)}
-                </div>
-              </div>
-            );
-          })()}
+          {loading ? (
+            <div style={{ fontSize: 48, fontWeight: 700, color: t.textFaint, lineHeight: 1,
+              marginBottom: 6, fontVariantNumeric: "tabular-nums" }}>—</div>
+          ) : (
+            <div style={{ fontSize: 48, fontWeight: 700, letterSpacing: "-0.03em", lineHeight: 1,
+              marginBottom: 6, fontVariantNumeric: "tabular-nums",
+              color: balance < 0 ? t.negative : t.text }}>
+              {fmt(balance)}
+            </div>
+          )}
         </div>
 
         {!loading && (
-          <WeeklyChart
-            entries={entries}
-            now={now}
-            selectedDay={selectedDay}
-            onSelectDay={setSelectedDay}
-          />
+          <WeeklyChart entries={entries} now={now} selectedDay={selectedDay} onSelectDay={setSelectedDay} />
         )}
 
-        {selectedDay && (
-          <div style={{ fontSize: 13, color: "#e2e2e2", letterSpacing: "0.01em" }}>
-            {selectedDay.toLocaleDateString("en-US", { weekday: "long" })}
-          </div>
-        )}
+        {/* Amount input */}
+        <input style={s.input} type="number" inputMode="decimal" placeholder="0.00"
+          value={amount} min="0" disabled={saving}
+          onChange={e => setAmount(e.target.value)} onKeyDown={handleKey} />
+        <input style={{ ...s.input, ...s.noteInput }} type="text" placeholder="Note (optional)"
+          value={note} maxLength={80} disabled={saving}
+          onChange={e => setNote(e.target.value)} onKeyDown={handleKey} />
 
-        <input
-          style={styles.input}
-          type="number"
-          inputMode="decimal"
-          placeholder="0.00"
-          value={amount}
-          min="0"
-          disabled={saving}
-          onChange={(e) => setAmount(e.target.value)}
-          onKeyDown={handleKey}
-        />
-        <input
-          style={{ ...styles.input, ...styles.noteInput }}
-          type="text"
-          placeholder="Note (optional)"
-          value={note}
-          maxLength={80}
-          disabled={saving}
-          onChange={(e) => setNote(e.target.value)}
-          onKeyDown={handleKey}
-        />
-
-        <div style={styles.btnRow}>
-          <button
-            style={{ ...styles.btn, ...styles.btnAdd, opacity: saving ? 0.5 : 1 }}
-            onClick={() => apply(1)}
-            disabled={saving}
-          >
-            + Add
-          </button>
-          <button
-            style={{ ...styles.btn, ...styles.btnSub, opacity: saving ? 0.5 : 1 }}
-            onClick={() => apply(-1)}
-            disabled={saving}
-          >
-            − Subtract
-          </button>
+        <div style={{ display: "flex", gap: 10, marginTop: 2 }}>
+          <button className="kb-btn" style={{ ...s.btn, ...s.btnAdd, opacity: saving ? 0.5 : 1 }}
+            onClick={() => apply(1)} disabled={saving}>+ Add</button>
+          <button className="kb-btn" style={{ ...s.btn, ...s.btnSub, opacity: saving ? 0.5 : 1 }}
+            onClick={() => apply(-1)} disabled={saving}>− Subtract</button>
         </div>
 
         {!loading && entries.length > 0 && (
           <div style={{ marginTop: 6 }}>
-            <div style={{ fontSize: 10, color: "#555", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: 6 }}>This Week</div>
+            <div style={s.sectionLabel}>This Week</div>
             <ThisWeekLog entries={entries} now={now} onDelete={deleteEntry} onEdit={setEditingEntry} />
             <WeeklyLog entries={entries} now={now} onDelete={deleteEntry} onEdit={setEditingEntry} />
           </div>
         )}
 
-        <div style={styles.resetWrap}>
+        <div style={{ marginTop: 8, display: "flex", justifyContent: "center" }}>
           {!showReset ? (
-            <button style={styles.resetBtn} onClick={() => setShowReset(true)}>Reset</button>
+            <button style={s.resetBtn} onClick={() => setShowReset(true)}>Reset</button>
           ) : (
-            <div style={styles.confirmRow}>
-              <span style={styles.confirmText}>Wipe all entries?</span>
-              <button style={{ ...styles.btn, ...styles.btnSub, fontSize: 13, padding: "6px 16px", flex: "none" }}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ color: t.textMuted, fontSize: 13 }}>Wipe all entries?</span>
+              <button className="kb-btn"
+                style={{ ...s.btn, ...s.btnSub, fontSize: 13, padding: "6px 16px", flex: "none", opacity: saving ? 0.5 : 1 }}
                 onClick={reset} disabled={saving}>Yes, reset</button>
-              <button style={{ ...styles.btn, background: "#1a1a1a", color: "#555", fontSize: 13, padding: "6px 16px", flex: "none" }}
+              <button className="kb-btn"
+                style={{ ...s.btn, background: t.surface, color: t.textMuted, border: `1px solid ${t.border}`,
+                  fontSize: 13, padding: "6px 16px", flex: "none" }}
                 onClick={() => setShowReset(false)}>Cancel</button>
             </div>
           )}
         </div>
 
       </div>
-    </div>}
-
-    {/* Calendar tab */}
-    {activeTab === "calendar" && (
-      <CalendarView entries={entries} now={now} supabase={supabase} />
-    )}
-
-    {/* Countdown tab */}
-    {activeTab === "countdown" && (
-      <CountdownView supabase={supabase} />
-    )}
-
-    {/* Bottom tab bar */}
-    <div style={styles.tabBar}>
-      <button
-        style={{ ...styles.tabBtn, color: activeTab === "balance" ? "#6bffb8" : "#3a3a3a" }}
-        onClick={() => setActiveTab("balance")}
-      >
-        <span style={styles.tabIcon}>⚖</span>
-        <span style={styles.tabLabel}>Balance</span>
-      </button>
-      <button
-        style={{ ...styles.tabBtn, color: activeTab === "calendar" ? "#6bffb8" : "#3a3a3a" }}
-        onClick={() => setActiveTab("calendar")}
-      >
-        <span style={styles.tabIcon}>◫</span>
-        <span style={styles.tabLabel}>Calendar</span>
-      </button>
-      <button
-        style={{ ...styles.tabBtn, color: activeTab === "countdown" ? "#8080ff" : "#3a3a3a" }}
-        onClick={() => setActiveTab("countdown")}
-      >
-        <span style={styles.tabIcon}>◷</span>
-        <span style={styles.tabLabel}>Countdown</span>
-      </button>
     </div>
-    </>
   );
 }
 
-const styles = {
-  root: {
-    minHeight: "100dvh",
-    background: "#0f0f0f",
-    display: "flex",
-    alignItems: "flex-start",
-    justifyContent: "center",
-    padding: "70px 20px 60px",
-    fontFamily: "'Inter', 'Segoe UI', sans-serif",
-    boxSizing: "border-box",
-  },
-  card: {
-    width: "100%",
-    maxWidth: 480,
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
-  },
-  dayTag: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    background: "#1a2a1a",
-    border: "1px solid #2a4a2a",
-    borderRadius: 8,
-    padding: "7px 12px",
-    fontSize: 12,
-    color: "#6bffb8",
-    marginBottom: -2,
-  },
-  dayTagClose: {
-    background: "none",
-    border: "none",
-    color: "#3a6a3a",
-    fontSize: 13,
-    cursor: "pointer",
-    padding: "0 0 0 8px",
-  },
-  dateHeader: {
-    fontSize: 13,
-    color: "#666",
-    fontWeight: 500,
-    marginBottom: 16,
-    letterSpacing: "0.01em",
-  },
-  dateDay: {
-    color: "#444",
-  },
-  balanceLabel: {
-    color: "#555",
-    fontSize: 11,
-    letterSpacing: "0.14em",
-    textTransform: "uppercase",
-    marginBottom: 4,
-    fontWeight: 500,
-  },
-  balance: {
-    fontSize: 48,
-    fontWeight: 700,
-    letterSpacing: "-0.03em",
-    lineHeight: 1,
-    marginBottom: 6,
-    fontVariantNumeric: "tabular-nums",
-  },
-  loadingBalance: {
-    fontSize: 48,
-    fontWeight: 700,
-    color: "#333",
-    lineHeight: 1,
-    marginBottom: 6,
-    fontVariantNumeric: "tabular-nums",
-  },
-  input: {
-    background: "#1a1a1a",
-    border: "1px solid #2a2a2a",
-    borderRadius: 10,
-    color: "#e2e2e2",
-    fontSize: 18,
-    padding: "12px 16px",
-    outline: "none",
-    width: "100%",
-    boxSizing: "border-box",
-  },
-  noteInput: {
-    fontSize: 14,
-    padding: "9px 16px",
-    color: "#aaa",
-  },
-  btnRow: {
-    display: "flex",
-    gap: 10,
-    marginTop: 2,
-  },
-  btn: {
-    flex: 1,
-    border: "none",
-    borderRadius: 10,
-    fontSize: 16,
-    fontWeight: 600,
-    padding: "13px 0",
-    cursor: "pointer",
-  },
-  btnAdd: {
-    background: "#1a3a2a",
-    color: "#6bffb8",
-  },
-  btnSub: {
-    background: "#3a1a1a",
-    color: "#ff6b6b",
-  },
-  errorBox: {
-    background: "#2a1a1a",
-    border: "1px solid #5a2a2a",
-    borderRadius: 8,
-    color: "#ff6b6b",
-    fontSize: 12,
-    padding: "8px 12px",
-  },
-  log: {
-    marginTop: 4,
-    display: "flex",
-    flexDirection: "column",
-    gap: 6,
-    maxHeight: 280,
-    overflowY: "auto",
-  },
-  entry: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    background: "#1a1a1a",
-    borderRadius: 8,
-    padding: "9px 14px",
-    gap: 8,
-  },
-  entryLeft: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 2,
-  },
-  entryAmount: {
-    fontSize: 15,
-    fontWeight: 600,
-  },
-  entryNote: {
-    fontSize: 12,
-    color: "#666",
-  },
-  entryTs: {
-    fontSize: 11,
-    color: "#444",
-    whiteSpace: "nowrap",
-  },
-  resetWrap: {
-    marginTop: 8,
-    display: "flex",
-    justifyContent: "center",
-  },
-  resetBtn: {
-    background: "none",
-    border: "1px solid #2a2a2a",
-    borderRadius: 8,
-    color: "#555",
-    fontSize: 13,
-    padding: "7px 20px",
-    cursor: "pointer",
-  },
-  confirmRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-  },
-  confirmText: {
-    color: "#888",
-    fontSize: 13,
-  },
-  tabBar: {
-    position: "fixed",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 56,
-    background: "#0a0a0a",
-    borderTop: "1px solid #1a1a1a",
-    display: "flex",
-    zIndex: 200,
-  },
-  tabBtn: {
-    flex: 1,
-    background: "none",
-    border: "none",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 3,
-    cursor: "pointer",
-    padding: 0,
-    fontFamily: "'Inter', 'Segoe UI', sans-serif",
-    transition: "color 0.15s",
-  },
-  tabIcon: {
-    fontSize: 18,
-    lineHeight: 1,
-  },
-  tabLabel: {
-    fontSize: 9,
-    fontWeight: 600,
-    letterSpacing: "0.1em",
-    textTransform: "uppercase",
-  },
-};
+// ─── TabBar ───────────────────────────────────────────────────────────────────
+function TabBar({ activeTab, setActiveTab, onOpenThemePicker }) {
+  const t = useTheme();
+  const s = useStyles();
+  const tabs = [
+    { id: "balance", icon: "⚖", label: "Balance" },
+    { id: "calendar", icon: "◫", label: "Calendar" },
+    { id: "countdown", icon: "◷", label: "Countdown" },
+  ];
+  return (
+    <div style={s.tabBar}>
+      {tabs.map(tab => (
+        <button key={tab.id} className="kb-btn"
+          style={{ ...s.tabBtn, color: activeTab === tab.id ? t.tabActive : t.tabInactive }}
+          onClick={() => setActiveTab(tab.id)}>
+          <span style={{ fontSize: 18, lineHeight: 1 }}>{tab.icon}</span>
+          <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+            {tab.label}
+          </span>
+        </button>
+      ))}
+      {/* Theme picker button */}
+      <button className="kb-btn"
+        style={{ ...s.tabBtn, color: t.tabInactive, flex: "none", width: 52 }}
+        onClick={onOpenThemePicker}>
+        <span style={{ fontSize: 16, lineHeight: 1 }}>◐</span>
+        <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+          Theme
+        </span>
+      </button>
+    </div>
+  );
+}
