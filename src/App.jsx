@@ -692,7 +692,7 @@ function HomeTab({ entries, balance, loading, saving, error, now, selectedDay, s
           type="number" inputMode="decimal" placeholder="0.00"
           value={amount} min="0" disabled={saving}
           onChange={e => setAmount(e.target.value)} onKeyDown={handleKey} />
-        <input style={{ ...inp, fontSize: 14, padding: "9px 16px", color: C.textMuted }}
+        <input style={{ ...inp, fontSize: 16, padding: "9px 16px", color: C.textMuted }}
           type="text" placeholder="Note (optional)"
           value={note} maxLength={80} disabled={saving}
           onChange={e => setNote(e.target.value)} onKeyDown={handleKey} />
@@ -1066,7 +1066,7 @@ function CountdownTab() {
 
   const inp = {
     background: "rgba(255,255,255,0.05)", border: `1px solid ${C.border}`,
-    borderRadius: 13, color: C.text, fontSize: 14, padding: "10px 13px", outline: "none",
+    borderRadius: 13, color: C.text, fontSize: 16, padding: "10px 13px", outline: "none",
     fontFamily: "'Inter','Segoe UI',sans-serif", width: "100%",
   };
 
@@ -1264,7 +1264,7 @@ function BillsTab({ now }) {
 
   const inp = {
     background: "rgba(255,255,255,0.05)", border: `1px solid ${C.border}`,
-    borderRadius: 12, color: C.text, fontSize: 14, padding: "10px 12px", outline: "none",
+    borderRadius: 12, color: C.text, fontSize: 16, padding: "10px 12px", outline: "none",
     fontFamily: "'Inter','Segoe UI',sans-serif",
   };
 
@@ -1705,7 +1705,7 @@ function EditEntryModal({ entry, onSave, onDelete, onClose }) {
           value={amount} min="0" disabled={saving}
           onChange={e => setAmount(e.target.value)} />
 
-        <input style={{ ...inp, fontSize: 14, padding: "9px 16px", color: C.textMuted }}
+        <input style={{ ...inp, fontSize: 16, padding: "9px 16px", color: C.textMuted }}
           type="text" placeholder="Note (optional)" value={note} maxLength={80} disabled={saving}
           onChange={e => setNote(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter") handleSave(); }} />
@@ -1748,7 +1748,7 @@ function EditCountdownModal({ countdown, onSave, onClose }) {
 
   const inp = {
     background: "rgba(255,255,255,0.05)", border: `1px solid ${C.border}`,
-    borderRadius: 13, color: C.text, fontSize: 14, padding: "10px 13px", outline: "none",
+    borderRadius: 13, color: C.text, fontSize: 16, padding: "10px 13px", outline: "none",
     fontFamily: "'Inter','Segoe UI',sans-serif",
   };
 
