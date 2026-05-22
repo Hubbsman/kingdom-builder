@@ -6,6 +6,19 @@ import { WM as C } from "./themes";
 const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 const entryDate = e => { const t = new Date(e.ts); return isNaN(t) ? new Date(e.created_at) : t; };
 
+const CATEGORIES = [
+  { id: "food",          name: "Food",          color: "#FF9A4A" },
+  { id: "transport",     name: "Transport",     color: "#5B7CFF" },
+  { id: "entertainment", name: "Entertainment", color: "#8B5CFF" },
+  { id: "health",        name: "Health",        color: "#58F5C3" },
+  { id: "shopping",      name: "Shopping",      color: "#FF6B8A" },
+  { id: "utilities",     name: "Utilities",     color: "#FFD166" },
+  { id: "income",        name: "Income",        color: "#06D6A0" },
+  { id: "other",         name: "Other",         color: "#94A3B8" },
+];
+const catColor = id => CATEGORIES.find(c => c.id === id)?.color;
+const catName  = id => CATEGORIES.find(c => c.id === id)?.name;
+
 function smoothPath(pts) {
   if (!pts.length) return "";
   if (pts.length === 1) return `M${pts[0].x},${pts[0].y}`;
@@ -308,9 +321,85 @@ function WaveChart({ entries, now, selectedDay, onSelectDay }) {
   );
 }
 
+// ─── Category Picker ─────────────────────────────────────────────────────────
+function CategoryPicker({ value, onChange }) {
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+      {CATEGORIES.map(cat => {
+        const on = value === cat.id;
+        return (
+          <button key={cat.id} className="wm-btn"
+            onClick={() => onChange(on ? null : cat.id)}
+            style={{
+              border: `1px solid ${on ? cat.color : "rgba(255,255,255,0.08)"}`,
+              borderRadius: 20,
+              background: on ? `${cat.color}22` : "rgba(255,255,255,0.03)",
+              color: on ? cat.color : C.textFaint,
+              fontSize: 11, fontWeight: on ? 600 : 400,
+              padding: "5px 10px", cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 5,
+              fontFamily: "'Inter','Segoe UI',sans-serif",
+              boxShadow: on ? `0 0 8px ${cat.color}55` : "none",
+            }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%",
+              background: cat.color, flexShrink: 0 }} />
+            {cat.name}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Category Weekly Summary ──────────────────────────────────────────────────
+function CategoryWeeklySummary({ entries, now }) {
+  const ws = sundayOf(now);
+  const weekEntries = entries.filter(e => entryDate(e) >= ws && e.category);
+  if (!weekEntries.length) return null;
+
+  const totals = {};
+  weekEntries.forEach(e => { totals[e.category] = (totals[e.category] || 0) + Number(e.change); });
+
+  const rows = Object.entries(totals).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+
+  return (
+    <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
+      <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.13em",
+        textTransform: "uppercase", fontWeight: 500, marginBottom: 10 }}>This Week · By Category</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        {rows.map(([catId, total]) => {
+          const color = catColor(catId) || "#94A3B8";
+          const name = catName(catId) || catId;
+          return (
+            <div key={catId} style={{
+              background: `linear-gradient(135deg,${C.glass} 0%,${C.glass2} 100%)`,
+              border: `1px solid ${C.border}`,
+              borderLeft: `3px solid ${color}`,
+              borderRadius: C.cardRadius,
+              padding: "12px 14px",
+              backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%",
+                  background: color, boxShadow: `0 0 6px ${color}88`, flexShrink: 0 }} />
+                <span style={{ fontSize: 11, color: C.textMuted, fontWeight: 500 }}>{name}</span>
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-0.02em",
+                color: total < 0 ? C.rose : C.teal,
+                textShadow: `0 0 10px ${total < 0 ? C.roseGlow : C.tealGlow}` }}>
+                {total > 0 ? "+" : ""}{fmt(total)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ─── Home Tab ─────────────────────────────────────────────────────────────────
 function HomeTab({ entries, balance, loading, saving, error, now, selectedDay, setSelectedDay,
-  amount, setAmount, note, setNote, apply, deleteEntry, setEditingEntry,
+  amount, setAmount, note, setNote, category, setCategory, apply, deleteEntry, setEditingEntry,
   reset, showReset, setShowReset, handleKey }) {
 
   const displayDay = selectedDay || now;
@@ -415,6 +504,7 @@ function HomeTab({ entries, balance, loading, saving, error, now, selectedDay, s
           type="text" placeholder="Note (optional)"
           value={note} maxLength={80} disabled={saving}
           onChange={e => setNote(e.target.value)} onKeyDown={handleKey} />
+        <CategoryPicker value={category} onChange={setCategory} />
         <div style={{ display: "flex", gap: 10 }}>
           <button className="wm-btn" onClick={() => apply(1)} disabled={saving}
             style={{ flex: 1, border: `1px solid rgba(88,245,195,0.22)`, borderRadius: C.btnRadius,
@@ -507,9 +597,11 @@ function TimelineTab({ entries, now, deleteEntry, setEditingEntry }) {
 
   const renderEntry = (e, i, border) => {
     const neg = Number(e.change) < 0;
+    const cc = e.category ? catColor(e.category) : null;
     return (
       <div key={e.id} className="wm-btn" onClick={() => setEditingEntry(e)}
         style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
+          paddingLeft: 11, borderLeft: cc ? `3px solid ${cc}` : "3px solid transparent",
           borderTop: border ? `1px solid ${C.border}` : "none", cursor: "pointer" }}>
         <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
           background: neg ? C.rose : C.teal,
@@ -650,6 +742,8 @@ function TimelineTab({ entries, now, deleteEntry, setEditingEntry }) {
           </div>
         );
       })}
+
+      <CategoryWeeklySummary entries={entries} now={now} />
     </div>
   );
 }
@@ -1278,6 +1372,7 @@ function PinLock({ onUnlock }) {
 function EditEntryModal({ entry, onSave, onDelete, onClose }) {
   const [amount, setAmount] = useState(String(Math.abs(Number(entry.change))));
   const [note, setNote] = useState(entry.note || "");
+  const [category, setCategory] = useState(entry.category || null);
   const [saving, setSaving] = useState(false);
   const isNeg = Number(entry.change) < 0;
 
@@ -1285,7 +1380,7 @@ function EditEntryModal({ entry, onSave, onDelete, onClose }) {
     const val = parseFloat(amount);
     if (!val || isNaN(val) || val <= 0) return;
     setSaving(true);
-    await onSave(entry.id, isNeg ? -val : val, note.trim() || null);
+    await onSave(entry.id, isNeg ? -val : val, note.trim() || null, category);
     setSaving(false); onClose();
   };
 
@@ -1337,6 +1432,8 @@ function EditEntryModal({ entry, onSave, onDelete, onClose }) {
           type="text" placeholder="Note (optional)" value={note} maxLength={80} disabled={saving}
           onChange={e => setNote(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter") handleSave(); }} />
+
+        <CategoryPicker value={category} onChange={setCategory} />
 
         <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
           <button className="wm-btn" onPointerDown={handleSave} disabled={saving}
@@ -1442,6 +1539,7 @@ export default function App() {
   const [now, setNow] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState(() => new Date());
   const [editingEntry, setEditingEntry] = useState(null);
+  const [category, setCategory] = useState(null);
 
   const weekSundayOf = d => { const s = new Date(d); s.setDate(d.getDate() - d.getDay()); s.setHours(0,0,0,0); return s; };
 
@@ -1475,13 +1573,14 @@ export default function App() {
     setSaving(true); setError(null);
     const target = selectedDay || now;
     const opt = { id: crypto.randomUUID(), change: sign * val, note: note.trim() || null,
+      category: category || null,
       ts: target.toISOString(), created_at: target.toISOString() };
     setEntries(prev => [opt, ...prev]);
     const ws = weekSundayOf(new Date());
     if (new Date(opt.ts) >= ws) setBalance(prev => prev + opt.change);
-    setAmount(""); setNote("");
+    setAmount(""); setNote(""); setCategory(null);
     const { data, error: err } = await supabase.from("money_entries")
-      .insert({ change: opt.change, note: opt.note, ts: opt.ts, created_at: opt.created_at })
+      .insert({ change: opt.change, note: opt.note, category: opt.category, ts: opt.ts, created_at: opt.created_at })
       .select().single();
     if (err) setError("Not saved: " + err.message);
     else if (data) setEntries(prev => prev.map(e => e.id === opt.id ? data : e));
@@ -1506,13 +1605,13 @@ export default function App() {
     await supabase.from("money_entries").delete().eq("id", id);
   };
 
-  const updateEntry = async (id, newChange, newNote) => {
+  const updateEntry = async (id, newChange, newNote, newCategory = null) => {
     const ws = weekSundayOf(new Date());
     const prev = entries.find(e => e.id === id);
     if (!prev) return;
-    setEntries(list => list.map(e => e.id === id ? { ...e, change: newChange, note: newNote } : e));
+    setEntries(list => list.map(e => e.id === id ? { ...e, change: newChange, note: newNote, category: newCategory } : e));
     if (entryDate(prev) >= ws) setBalance(b => b - Number(prev.change) + newChange);
-    await supabase.from("money_entries").update({ change: newChange, note: newNote }).eq("id", id);
+    await supabase.from("money_entries").update({ change: newChange, note: newNote, category: newCategory }).eq("id", id);
   };
 
   const handleKey = e => { if (e.key === "Enter") apply(1); };
@@ -1533,6 +1632,7 @@ export default function App() {
         <HomeTab entries={entries} balance={balance} loading={loading} saving={saving}
           error={error} now={now} selectedDay={selectedDay} setSelectedDay={setSelectedDay}
           amount={amount} setAmount={setAmount} note={note} setNote={setNote}
+          category={category} setCategory={setCategory}
           apply={apply} deleteEntry={deleteEntry} setEditingEntry={setEditingEntry}
           reset={reset} showReset={showReset} setShowReset={setShowReset}
           handleKey={handleKey} />

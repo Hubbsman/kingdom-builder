@@ -1,4 +1,10 @@
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Categories Feature — run this first
+-- ─────────────────────────────────────────────────────────────────────────────
+
+alter table money_entries add column if not exists category text;
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Mentor Feature — Supabase Migration
 -- Run this in your Supabase project: SQL Editor → New query → paste → Run
 -- ─────────────────────────────────────────────────────────────────────────────
