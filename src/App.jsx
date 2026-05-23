@@ -355,44 +355,60 @@ function CategoryPicker({ value, onChange }) {
 function CategoryWeeklySummary({ entries, now }) {
   const ws = sundayOf(now);
   const weekEntries = entries.filter(e => entryDate(e) >= ws && e.category);
-  if (!weekEntries.length) return null;
 
   const totals = {};
   weekEntries.forEach(e => { totals[e.category] = (totals[e.category] || 0) + Number(e.change); });
-
   const rows = Object.entries(totals).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
 
   return (
     <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
       <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.13em",
-        textTransform: "uppercase", fontWeight: 500, marginBottom: 10 }}>This Week · By Category</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        {rows.map(([catId, total]) => {
-          const color = catColor(catId) || "#94A3B8";
-          const name = catName(catId) || catId;
-          return (
-            <div key={catId} style={{
-              background: `linear-gradient(135deg,${C.glass} 0%,${C.glass2} 100%)`,
-              border: `1px solid ${C.border}`,
-              borderLeft: `3px solid ${color}`,
-              borderRadius: C.cardRadius,
-              padding: "12px 14px",
-              backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
-                <div style={{ width: 8, height: 8, borderRadius: "50%",
-                  background: color, boxShadow: `0 0 6px ${color}88`, flexShrink: 0 }} />
-                <span style={{ fontSize: 11, color: C.textMuted, fontWeight: 500 }}>{name}</span>
+        textTransform: "uppercase", fontWeight: 500, marginBottom: 12 }}>This Week · By Category</div>
+
+      {rows.length === 0 ? (
+        <div style={{ textAlign: "center", padding: "20px 0", color: C.textFaint, fontSize: 12 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 6, marginBottom: 10 }}>
+            {CATEGORIES.map(cat => (
+              <div key={cat.id} style={{ display: "inline-flex", alignItems: "center", gap: 4,
+                background: `${cat.color}12`, border: `1px solid ${cat.color}33`,
+                borderRadius: 10, padding: "3px 8px" }}>
+                <div style={{ width: 5, height: 5, borderRadius: "50%", background: cat.color }} />
+                <span style={{ fontSize: 9, color: cat.color, fontWeight: 600, letterSpacing: "0.06em",
+                  textTransform: "uppercase" }}>{cat.name}</span>
               </div>
-              <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-0.02em",
-                color: total < 0 ? C.rose : C.teal,
-                textShadow: `0 0 10px ${total < 0 ? C.roseGlow : C.tealGlow}` }}>
-                {total > 0 ? "+" : ""}{fmt(total)}
+            ))}
+          </div>
+          <div style={{ fontSize: 11, color: C.textFaint }}>Tap any entry above to assign a category</div>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {rows.map(([catId, total]) => {
+            const color = catColor(catId) || "#94A3B8";
+            const name = catName(catId) || catId;
+            return (
+              <div key={catId} style={{
+                background: `linear-gradient(135deg,${C.glass} 0%,${C.glass2} 100%)`,
+                border: `1px solid ${C.border}`,
+                borderLeft: `3px solid ${color}`,
+                borderRadius: C.cardRadius,
+                padding: "12px 14px",
+                backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: "50%",
+                    background: color, boxShadow: `0 0 6px ${color}88`, flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, color: C.textMuted, fontWeight: 500 }}>{name}</span>
+                </div>
+                <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-0.02em",
+                  color: total < 0 ? C.rose : C.teal,
+                  textShadow: `0 0 10px ${total < 0 ? C.roseGlow : C.tealGlow}` }}>
+                  {total > 0 ? "+" : ""}{fmt(total)}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -598,21 +614,31 @@ function TimelineTab({ entries, now, deleteEntry, setEditingEntry }) {
   const renderEntry = (e, i, border) => {
     const neg = Number(e.change) < 0;
     const cc = e.category ? catColor(e.category) : null;
+    const cn = e.category ? catName(e.category) : null;
     return (
       <div key={e.id} className="wm-btn" onClick={() => setEditingEntry(e)}
         style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
-          paddingLeft: 11, borderLeft: cc ? `3px solid ${cc}` : "3px solid transparent",
+          paddingLeft: 11, borderLeft: cc ? `3px solid ${cc}` : `3px solid ${C.border}`,
           borderTop: border ? `1px solid ${C.border}` : "none", cursor: "pointer" }}>
         <div style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
           background: neg ? C.rose : C.teal,
           boxShadow: `0 0 6px ${neg ? C.roseGlow : C.tealGlow}` }} />
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: neg ? C.rose : C.teal }}>
             {neg ? "" : "+"}{fmt(Number(e.change))}
           </div>
           {e.note && <div style={{ fontSize: 11, color: C.textMuted, marginTop: 1 }}>{e.note}</div>}
+          {cn && (
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 3,
+              background: `${cc}18`, border: `1px solid ${cc}44`,
+              borderRadius: 10, padding: "2px 7px" }}>
+              <div style={{ width: 5, height: 5, borderRadius: "50%", background: cc }} />
+              <span style={{ fontSize: 9, color: cc, fontWeight: 600, letterSpacing: "0.06em",
+                textTransform: "uppercase" }}>{cn}</span>
+            </div>
+          )}
         </div>
-        <div style={{ fontSize: 10, color: C.textFaint }}>
+        <div style={{ fontSize: 10, color: C.textFaint, flexShrink: 0 }}>
           {entryDate(e).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
         </div>
         <button onPointerDown={ev => ev.stopPropagation()}
