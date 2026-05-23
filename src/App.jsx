@@ -1579,8 +1579,10 @@ export default function App() {
     const ws = weekSundayOf(new Date());
     if (new Date(opt.ts) >= ws) setBalance(prev => prev + opt.change);
     setAmount(""); setNote(""); setCategory(null);
+    const payload = { change: opt.change, note: opt.note, ts: opt.ts, created_at: opt.created_at };
+    if (opt.category) payload.category = opt.category;
     const { data, error: err } = await supabase.from("money_entries")
-      .insert({ change: opt.change, note: opt.note, category: opt.category, ts: opt.ts, created_at: opt.created_at })
+      .insert(payload)
       .select().single();
     if (err) setError("Not saved: " + err.message);
     else if (data) setEntries(prev => prev.map(e => e.id === opt.id ? data : e));
@@ -1611,7 +1613,9 @@ export default function App() {
     if (!prev) return;
     setEntries(list => list.map(e => e.id === id ? { ...e, change: newChange, note: newNote, category: newCategory } : e));
     if (entryDate(prev) >= ws) setBalance(b => b - Number(prev.change) + newChange);
-    await supabase.from("money_entries").update({ change: newChange, note: newNote, category: newCategory }).eq("id", id);
+    const update = { change: newChange, note: newNote };
+    if (newCategory) update.category = newCategory;
+    await supabase.from("money_entries").update(update).eq("id", id);
   };
 
   const handleKey = e => { if (e.key === "Enter") apply(1); };
