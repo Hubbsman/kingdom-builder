@@ -1,23 +1,32 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
-import { WM as C } from "./themes";
+import { WM as C, ACTIVE_THEME, setTheme } from "./themes";
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 const fmt = n => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 const entryDate = e => { const t = new Date(e.ts); return isNaN(t) ? new Date(e.created_at) : t; };
 
 const CATEGORIES = [
-  { id: "food",          name: "Food",          color: "#FF9A4A" },
-  { id: "transport",     name: "Transport",     color: "#5B7CFF" },
-  { id: "entertainment", name: "Entertainment", color: "#8B5CFF" },
-  { id: "health",        name: "Health",        color: "#58F5C3" },
-  { id: "shopping",      name: "Shopping",      color: "#FF6B8A" },
-  { id: "utilities",     name: "Utilities",     color: "#FFD166" },
-  { id: "income",        name: "Income",        color: "#06D6A0" },
-  { id: "other",         name: "Other",         color: "#94A3B8" },
+  { id: "food",          name: "Food",            color: "#FF9A4A" },
+  { id: "transport",     name: "Transport",       color: "#5B7CFF" },
+  { id: "entertainment", name: "Entertainment",   color: "#8B5CFF" },
+  { id: "shopping",      name: "Shopping",        color: "#FF6B8A" },
+  { id: "bills",         name: "Bills",           color: "#FFD166" },
+  { id: "weed",          name: "Weed",            color: "#22C55E" },
+  { id: "ads",           name: "Ads",             color: "#38BDF8" },
+  { id: "roadhouse",     name: "Texas Roadhouse", color: "#2DD4BF" },
+  { id: "lawncare",      name: "Lawn Care",       color: "#A3E635" },
+  { id: "income",        name: "Income",          color: "#06D6A0" },
+  { id: "other",         name: "Other",           color: "#94A3B8" },
 ];
-const catColor = id => CATEGORIES.find(c => c.id === id)?.color;
-const catName  = id => CATEGORIES.find(c => c.id === id)?.name;
+// retired categories — old entries still display correctly, just not pickable
+const LEGACY_CATEGORIES = [
+  { id: "health",    name: "Health",    color: "#58F5C3" },
+  { id: "utilities", name: "Utilities", color: "#FFD166" },
+];
+const findCat = id => CATEGORIES.find(c => c.id === id) || LEGACY_CATEGORIES.find(c => c.id === id);
+const catColor = id => findCat(id)?.color;
+const catName  = id => findCat(id)?.name;
 
 function smoothPath(pts) {
   if (!pts.length) return "";
@@ -108,7 +117,7 @@ const GLOBAL_CSS = `
     100%{transform:translateX(220%) skewX(-12deg);}
   }
   * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
-  body { margin: 0; background: #050816; overscroll-behavior: none; }
+  body { margin: 0; background: ${C.bg}; overscroll-behavior: none; }
   input { appearance: none; -webkit-appearance: none; }
   input[type=number]::-webkit-inner-spin-button,
   input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
@@ -131,7 +140,30 @@ const WAVE1 = genWave(38, 340, 3840, 220);
 const WAVE2 = genWave(24, 420, 3840, 180);
 const WAVE3 = genWave(16, 270, 3840, 140);
 
+function AuroraBackground() {
+  return (
+    <div style={{ position: "fixed", inset: 0, zIndex: 0, background: C.bg, overflow: "hidden", pointerEvents: "none" }}>
+      <div style={{ position: "absolute", width: 760, height: 760, borderRadius: "50%",
+        background: "radial-gradient(circle,rgba(139,92,246,0.26) 0%,transparent 65%)",
+        top: "-22%", left: "-16%", filter: "blur(80px)", animation: "orb1 30s ease-in-out infinite" }} />
+      <div style={{ position: "absolute", width: 640, height: 640, borderRadius: "50%",
+        background: "radial-gradient(circle,rgba(236,72,153,0.18) 0%,transparent 65%)",
+        bottom: "-8%", right: "-14%", filter: "blur(90px)", animation: "orb2 36s ease-in-out infinite" }} />
+      <div style={{ position: "absolute", width: 520, height: 520, borderRadius: "50%",
+        background: "radial-gradient(circle,rgba(56,189,248,0.12) 0%,transparent 70%)",
+        top: "30%", right: "8%", filter: "blur(95px)", animation: "orb3 26s ease-in-out infinite" }} />
+      <div style={{ position: "absolute", width: 420, height: 420, borderRadius: "50%",
+        background: "radial-gradient(circle,rgba(251,191,36,0.08) 0%,transparent 70%)",
+        bottom: "22%", left: "-6%", filter: "blur(85px)", animation: "orb1 24s ease-in-out infinite reverse" }} />
+      <div style={{ position: "absolute", width: 360, height: 360, borderRadius: "50%",
+        background: "radial-gradient(circle,rgba(52,211,153,0.1) 0%,transparent 70%)",
+        top: "52%", left: "30%", filter: "blur(75px)", animation: "orb3 32s ease-in-out infinite reverse" }} />
+    </div>
+  );
+}
+
 function WaveBackground() {
+  if (C.name === "aurora") return <AuroraBackground />;
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 0, background: C.bg, overflow: "hidden", pointerEvents: "none" }}>
       <div style={{ position: "absolute", width: 700, height: 700, borderRadius: "50%",
@@ -351,19 +383,42 @@ function CategoryPicker({ value, onChange }) {
   );
 }
 
-// ─── Category Weekly Summary ──────────────────────────────────────────────────
-function CategoryWeeklySummary({ entries, now }) {
-  const ws = sundayOf(now);
-  const weekEntries = entries.filter(e => entryDate(e) >= ws && e.category);
+// ─── Category Breakdown (shared by week + month summaries) ───────────────────
+function CategoryBreakdown({ entries: subset, title, compact }) {
+  const tagged = subset.filter(e => e.category);
 
   const totals = {};
-  weekEntries.forEach(e => { totals[e.category] = (totals[e.category] || 0) + Number(e.change); });
+  tagged.forEach(e => { totals[e.category] = (totals[e.category] || 0) + Number(e.change); });
   const rows = Object.entries(totals).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
 
+  const incomeTotal = subset.filter(e => Number(e.change) > 0).reduce((s, e) => s + Number(e.change), 0);
+  const spentTotal  = subset.filter(e => Number(e.change) < 0).reduce((s, e) => s + Number(e.change), 0);
+
   return (
-    <div style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
+    <div style={compact
+      ? { padding: "12px 14px 14px", borderTop: `1px solid ${C.border}` }
+      : { marginTop: 24, paddingTop: 16, borderTop: `1px solid ${C.border}` }}>
       <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.13em",
-        textTransform: "uppercase", fontWeight: 500, marginBottom: 12 }}>This Week · By Category</div>
+        textTransform: "uppercase", fontWeight: 500, marginBottom: 12 }}>{title}</div>
+
+      {subset.length > 0 && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <div style={{ flex: 1, background: C.tealSoft, border: `1px solid ${C.border}`,
+            borderRadius: 12, padding: "8px 12px" }}>
+            <div style={{ fontSize: 9, color: C.textFaint, letterSpacing: "0.1em",
+              textTransform: "uppercase", marginBottom: 3 }}>Income</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.teal,
+              textShadow: `0 0 10px ${C.tealGlow}` }}>+{fmt(incomeTotal)}</div>
+          </div>
+          <div style={{ flex: 1, background: C.roseSoft, border: `1px solid ${C.border}`,
+            borderRadius: 12, padding: "8px 12px" }}>
+            <div style={{ fontSize: 9, color: C.textFaint, letterSpacing: "0.1em",
+              textTransform: "uppercase", marginBottom: 3 }}>Spent</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: C.rose,
+              textShadow: `0 0 10px ${C.roseGlow}` }}>{fmt(spentTotal)}</div>
+          </div>
+        </div>
+      )}
 
       {rows.length === 0 ? (
         <div style={{ textAlign: "center", padding: "20px 0", color: C.textFaint, fontSize: 12 }}>
@@ -378,7 +433,7 @@ function CategoryWeeklySummary({ entries, now }) {
               </div>
             ))}
           </div>
-          <div style={{ fontSize: 11, color: C.textFaint }}>Tap any entry above to assign a category</div>
+          <div style={{ fontSize: 11, color: C.textFaint }}>Tap any entry to assign a category</div>
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -573,8 +628,17 @@ function HomeTab({ entries, balance, loading, saving, error, now, selectedDay, s
         </div>
       )}
 
-      {/* Reset */}
-      <div style={{ display: "flex", justifyContent: "center", marginTop: 8 }}>
+      {/* Reset + Theme */}
+      <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 8 }}>
+        {!showReset && (
+          <button className="wm-btn"
+            onClick={() => setTheme(ACTIVE_THEME === "aurora" ? "waves" : "aurora")}
+            style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 20,
+              color: C.textFaint, fontSize: 12, padding: "6px 18px", cursor: "pointer",
+              fontFamily: "'Inter','Segoe UI',sans-serif" }}>
+            Theme: {ACTIVE_THEME === "aurora" ? "Aurora" : "Original"}
+          </button>
+        )}
         {!showReset ? (
           <button className="wm-btn" onClick={() => setShowReset(true)}
             style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 20,
@@ -600,6 +664,7 @@ function HomeTab({ entries, balance, loading, saving, error, now, selectedDay, s
 
 // ─── Timeline Tab ─────────────────────────────────────────────────────────────
 function TimelineTab({ entries, now, deleteEntry, setEditingEntry }) {
+  const [expandedMonth, setExpandedMonth] = useState(null);
   const [expandedWeek, setExpandedWeek] = useState(null);
   const [expandedDays, setExpandedDays] = useState({});
   const DAY = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
@@ -673,16 +738,26 @@ function TimelineTab({ entries, now, deleteEntry, setEditingEntry }) {
     dayGroups[k].net += Number(e.change);
   });
 
-  const weekGroups = {};
+  // months → weeks → days
+  const monthGroups = {};
   past.forEach(e => {
-    const d = entryDate(e), wk = sundayOf(d).toLocaleDateString("en-CA");
-    if (!weekGroups[wk]) weekGroups[wk] = { label: weekLabelStr(d), items: [], net: 0, dayMap: {} };
-    weekGroups[wk].items.push(e);
-    weekGroups[wk].net += Number(e.change);
+    const d = entryDate(e);
+    const mk = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    if (!monthGroups[mk]) monthGroups[mk] = {
+      label: d.toLocaleDateString("en-US", { month: "long", year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined }),
+      items: [], net: 0, weekMap: {},
+    };
+    const m = monthGroups[mk];
+    m.items.push(e);
+    m.net += Number(e.change);
+    const wk = sundayOf(d).toLocaleDateString("en-CA");
+    if (!m.weekMap[wk]) m.weekMap[wk] = { label: weekLabelStr(d), items: [], net: 0, dayMap: {} };
+    m.weekMap[wk].items.push(e);
+    m.weekMap[wk].net += Number(e.change);
     const dk = d.toLocaleDateString("en-CA");
-    if (!weekGroups[wk].dayMap[dk]) weekGroups[wk].dayMap[dk] = { name: DAY[d.getDay()], items: [], net: 0 };
-    weekGroups[wk].dayMap[dk].items.push(e);
-    weekGroups[wk].dayMap[dk].net += Number(e.change);
+    if (!m.weekMap[wk].dayMap[dk]) m.weekMap[wk].dayMap[dk] = { name: DAY[d.getDay()], items: [], net: 0 };
+    m.weekMap[wk].dayMap[dk].items.push(e);
+    m.weekMap[wk].dayMap[dk].net += Number(e.change);
   });
 
   return (
@@ -718,58 +793,84 @@ function TimelineTab({ entries, now, deleteEntry, setEditingEntry }) {
         </div>
       )}
 
-      {Object.entries(weekGroups).sort(([a],[b]) => b.localeCompare(a)).map(([wk, { label, net, dayMap }]) => {
-        const isOpen = expandedWeek === wk;
+      {Object.keys(monthGroups).length > 0 && (
+        <div style={{ fontSize: 10, color: C.textFaint, letterSpacing: "0.13em",
+          textTransform: "uppercase", fontWeight: 500, marginBottom: 10 }}>Past Months</div>
+      )}
+
+      {Object.entries(monthGroups).sort(([a],[b]) => b.localeCompare(a)).map(([mk, { label: mLabel, net: mNet, items: mItems, weekMap }]) => {
+        const isMonthOpen = expandedMonth === mk;
         return (
-          <div key={wk} style={{ marginBottom: 8 }}>
+          <div key={mk} style={{ marginBottom: 8 }}>
             <div style={{ ...glass,
-              borderRadius: isOpen ? `${C.cardRadius}px ${C.cardRadius}px 0 0` : C.cardRadius }}
-              onClick={() => setExpandedWeek(isOpen ? null : wk)}>
+              borderRadius: isMonthOpen ? `${C.cardRadius}px ${C.cardRadius}px 0 0` : C.cardRadius }}
+              onClick={() => { setExpandedMonth(isMonthOpen ? null : mk); setExpandedWeek(null); }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-                padding: "12px 14px", cursor: "pointer" }}>
-                <span style={{ fontSize: 13, color: C.textMuted, fontWeight: 500 }}>{label}</span>
+                padding: "13px 14px", cursor: "pointer" }}>
+                <span style={{ fontSize: 14, color: C.text, fontWeight: 600 }}>{mLabel}</span>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 15, fontWeight: 600,
-                    color: net < 0 ? C.rose : C.teal,
-                    textShadow: `0 0 12px ${net < 0 ? C.roseGlow : C.tealGlow}` }}>
-                    {net > 0 ? "+" : ""}{fmt(net)}
+                    color: mNet < 0 ? C.rose : C.teal,
+                    textShadow: `0 0 12px ${mNet < 0 ? C.roseGlow : C.tealGlow}` }}>
+                    {mNet > 0 ? "+" : ""}{fmt(mNet)}
                   </span>
                   <span style={{ color: C.textFaint, fontSize: 16, display: "inline-block",
-                    transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s" }}>›</span>
+                    transform: isMonthOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s" }}>›</span>
                 </div>
               </div>
             </div>
-            {isOpen && (
+            {isMonthOpen && (
               <div style={{ ...glass, borderRadius: `0 0 ${C.cardRadius}px ${C.cardRadius}px`,
                 borderTop: "none", overflow: "hidden" }}>
-                {Object.entries(dayMap).sort(([a],[b]) => b.localeCompare(a)).map(([dk, { name, items: di, net: dn }]) => {
-                  const dayKey = `${wk}|${dk}`, isDayOpen = !!expandedDays[dayKey];
+                {Object.entries(weekMap).sort(([a],[b]) => b.localeCompare(a)).map(([wk, { label, net, dayMap }]) => {
+                  const isOpen = expandedWeek === wk;
                   return (
-                    <div key={dk} style={{ borderTop: `1px solid ${C.border}` }}>
-                      <div onClick={() => setExpandedDays(p => ({ ...p, [dayKey]: !p[dayKey] }))}
+                    <div key={wk} style={{ borderTop: `1px solid ${C.border}` }}>
+                      <div onClick={() => setExpandedWeek(isOpen ? null : wk)}
                         style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
-                          padding: "9px 14px", cursor: "pointer" }}>
-                        <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase",
-                          letterSpacing: "0.08em" }}>{name}</span>
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: dn < 0 ? C.rose : C.teal }}>
-                            {dn > 0 ? "+" : ""}{fmt(dn)}
+                          padding: "11px 14px", cursor: "pointer" }}>
+                        <span style={{ fontSize: 13, color: C.textMuted, fontWeight: 500 }}>{label}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 14, fontWeight: 600,
+                            color: net < 0 ? C.rose : C.teal }}>
+                            {net > 0 ? "+" : ""}{fmt(net)}
                           </span>
-                          <span style={{ color: C.textFaint, fontSize: 14, display: "inline-block",
-                            transform: isDayOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s" }}>›</span>
+                          <span style={{ color: C.textFaint, fontSize: 15, display: "inline-block",
+                            transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s" }}>›</span>
                         </div>
                       </div>
-                      {isDayOpen && di.sort((a,b) => entryDate(b) - entryDate(a)).map((e,i) => renderEntry(e,i,i>0))}
+                      {isOpen && Object.entries(dayMap).sort(([a],[b]) => b.localeCompare(a)).map(([dk, { name, items: di, net: dn }]) => {
+                        const dayKey = `${wk}|${dk}`, isDayOpen = !!expandedDays[dayKey];
+                        return (
+                          <div key={dk} style={{ borderTop: `1px solid ${C.border}` }}>
+                            <div onClick={() => setExpandedDays(p => ({ ...p, [dayKey]: !p[dayKey] }))}
+                              style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                                padding: "9px 14px 9px 24px", cursor: "pointer" }}>
+                              <span style={{ fontSize: 11, color: C.textMuted, textTransform: "uppercase",
+                                letterSpacing: "0.08em" }}>{name}</span>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontSize: 13, fontWeight: 600, color: dn < 0 ? C.rose : C.teal }}>
+                                  {dn > 0 ? "+" : ""}{fmt(dn)}
+                                </span>
+                                <span style={{ color: C.textFaint, fontSize: 14, display: "inline-block",
+                                  transform: isDayOpen ? "rotate(90deg)" : "none", transition: "transform 0.18s" }}>›</span>
+                              </div>
+                            </div>
+                            {isDayOpen && di.sort((a,b) => entryDate(b) - entryDate(a)).map((e,i) => renderEntry(e,i,i>0))}
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
+                <CategoryBreakdown entries={mItems} title={`${mLabel} · By Category`} compact />
               </div>
             )}
           </div>
         );
       })}
 
-      <CategoryWeeklySummary entries={entries} now={now} />
+      <CategoryBreakdown entries={thisWeek} title="This Week · By Category" />
     </div>
   );
 }
